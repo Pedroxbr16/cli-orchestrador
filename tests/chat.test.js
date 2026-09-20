@@ -138,3 +138,23 @@ test('com TTY o spinner não quebra o turno', async (t) => {
   assert.equal(result.turns, 1);
   assert.match(text, /resposta simulada/);
 });
+
+test('com TTY o visual usa caixa, prompt ❯ e barra na resposta', async (t) => {
+  const cwd = await repository(t);
+  const input = Readable.from(['revise sample.txt\n', '/sair\n']);
+  let text = '';
+  const output = new Writable({ write(chunk, _encoding, callback) { text += chunk.toString(); callback(); } });
+  output.isTTY = true;
+  output.columns = 80;
+  output.cursorTo = () => true;
+  output.clearLine = () => true;
+  output.moveCursor = () => true;
+  const result = await chatCommand({ agent: 'revisor', cwd, input, output });
+  assert.equal(result.turns, 1);
+  assert.match(text, /╭/);
+  assert.match(text, /╰/);
+  assert.match(text, /ORACULO/);
+  assert.match(text, /❯/);
+  assert.match(text, /│ resposta simulada/);
+  assert.equal(text.includes('oraculo/revisor>'), false);
+});

@@ -559,8 +559,24 @@ mesma auditoria — então tudo da Fase 10 vale por turno: só Codex read-only
 executa; OpenCode e escrita recusam com `AGENT_POLICY_UNSUPPORTED`. Sem
 persistência de histórico entre sessões.
 
-Com TTY, cada turno mostra spinner (`ora`) e cores (`chalk`); em pipe a saída
-é texto puro e determinístico. O histórico das tarefas vai para
+Com TTY, cada turno mostra spinner azul (`ora`) e cores (`chalk`); em pipe a saída
+é texto puro e determinístico. Com terminal, a sessão abre em caixa azul
+estilo OpenCode, prompt `❯` e respostas com barra lateral `│`:
+
+```text
+╭────────────────────────────────────────╮
+│ ORACULO  ·  interactive chat           │
+│ /help · /agent [nome] · /sair · ...    │
+╰────────────────────────────────────────╯
+◆ leitor  codex
+leitor ❯ leia f.txt
+⠋ Consultando leitor…
+✔ Resposta recebida.
+│ O Oraculo responde em
+│ duas linhas.
+```
+
+O histórico das tarefas vai para
 `.oraculo/chat-history` (últimas 200 linhas, `0o600`), carregado na sessão
 seguinte para recall com `↑`; comandos `/` não são persistidos. Persistência
 respeita o filesystem do projeto (read-only só avisa) e nunca interrompe a

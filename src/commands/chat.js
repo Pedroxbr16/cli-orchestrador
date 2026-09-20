@@ -45,8 +45,22 @@ export async function chatCommand({ agent, auto = false, cwd = process.cwd(), in
   });
   const manager = new AgentManager();
   // Cores só com TTY: em pipe a saída fica limpa e determinística.
+  // Layout bonito (caixas, ❯, barras) só com TTY: pipe é texto puro.
   const chalk = new Chalk({ level: output.isTTY ? undefined : 0 });
+  const pretty = Boolean(output.isTTY);
+  const width = Math.max(40, Math.min(72, output.columns || 60));
   const say = (line = '') => output.write(line + '\n');
+  const frame = (raw, style = (s) => s) => {
+    const cell = raw.length > width - 4 ? raw.slice(0, width - 7) + '...' : raw.padEnd(width - 4);
+    return chalk.blue('│') + ' ' + style(cell) + ' ' + chalk.blue('│');
+  };
+  const top = () => say(chalk.blue(`╭${'─'.repeat(width - 2)}╮`));
+  const bottom = () => say(chalk.blue(`╰${'─'.repeat(width - 2)}╯`));
+  const rule = () => say(chalk.blue.dim('─'.repeat(width)));
+  const answerBlock = (text) => {
+    if (!pretty) return say(text);
+    for (const line of String(text).trimEnd().split('\n')) say(chalk.blue('│ ') + line);
+  };
   const describe = async (name) => {
     try {
       const resolved = await manager.resolveAgent(name, { cwd });
@@ -68,7 +82,22 @@ export async function chatCommand({ agent, auto = false, cwd = process.cwd(), in
     if (current) await describe(current);
 
     say(chalk.bold('Oraculo chat') + ' — comandos: /help, /agent [nome], /sair.');
-    say(current ? `Agente: ${chalk.cyan(await describe(current))}` : 'Agente: auto (roteado por mensagem).');
+    if (!pretty) {
+      say(current ? `Agente: ${chalk.cyan(await describe(current))}` : 'Agente: auto (roteado por mensagem).');
+    } else {
+      top();
+      say(frame('ORACULO  ·  interactive chat', (s) => chalk.bold.white(s)));
+      say(frame('/help · /agent [nome] · /sair · Ctrl+C cancela o turno', (s) => chalk.dim(s)));
+      bottom();
+      if (current) {
+        const resolved = await manager.resolveAgent(current, { cwd });
+        const eng = resolved.definition?.engine ?? resolved.adapter.command;
+        const mod = resolved.definition?.model ? ` · ${resolved.definition.model}` : '';
+        say(`${chalk.blue('◆')} ${chalk.bold(chalk.blue(current))}  ${chalk.dim(eng + mod)}`);
+      } else {
+        say(`${chalk.blue('◆')} ${chalk.bold(chalk.blue('auto'))}  ${chalk.dim('roteado por mensagem')}`);
+      }
+    }
 
     // Histórico da sessão anterior; ausência de arquivo é normal na 1ª sessão.
     // Array próprio (ordem cronológica): o readline só registra com TTY.
@@ -76,16 +105,17 @@ export async function chatCommand({ agent, auto = false, cwd = process.cwd(), in
     rl.history.push(...[...hist].reverse());
     for (;;) {
       const label = current ?? 'auto';
-      output.write(`oraculo/${label}> `);
+      if (pretty) output.write(`${chalk.dim(label)} ${chalk.blue('❯')} `);
+      else output.write(`oraculo/${label}> `);
       const next = await lines.next();
       if (next.done) break;
       const text = String(next.value ?? '').trim();
       if (!text) continue;
       if (['/sair', '/exit', '/quit'].includes(text)) break;
       if (text === '/help' || text === '/ajuda') {
-        say('/help — esta ajuda');
-        say('/agent [nome] — mostra o agente atual ou troca de agente');
-        say('/sair — encerra (Ctrl+D também encerra)');
+        say(`${chalk.cyan('/help')} — esta ajuda`);
+        say(`${chalk.cyan('/agent [nome]')} — mostra o agente atual ou troca de agente`);
+        say(`${chalk.cyan('/sair')} — encerra (Ctrl+D também encerra)`);
         say('Qualquer outra linha é enviada como tarefa ao agente atual.');
         continue;
       }
@@ -103,9 +133,10 @@ export async function chatCommand({ agent, auto = false, cwd = process.cwd(), in
         }
         continue;
       }
-      // Spinner só com TTY real (com métodos de cursor): em pipe ou stream
-      // simples a saída fica limpa para scripts/testes.
-      const interactive = Boolean(output.isTTY) && typeof output.cursorTo === 'function';
+      // Spinner só com TTY real dimensionado (com métodos de cursor e
+      // colunas): pty degenerado (0 colunas) trava o ora em loop. Em pipe
+      // ou stream simples a saída fica limpa para scripts/testes.
+      const interactive = Boolean(output.isTTY) && typeof output.cursorTo === 'function' && (output.columns || 0) > 0;
       const spinner = interactive
         ? ora({ text: `Consultando ${current ?? 'agente'}…`, stream: output, isEnabled: true }).start()
         : null;
@@ -122,7 +153,7 @@ export async function chatCommand({ agent, auto = false, cwd = process.cwd(), in
         try {
           const result = await runAgent({ agent: target, prompt: text, cwd, cancelSignal: running.signal });
           if (spinner) spinner.succeed('Resposta recebida.');
-          if (result?.output) say(result.output);
+          if (result?.output) answerBlock(result.output);
           hist.push(text);
         } finally {
           running = null;
@@ -154,6 +185,8 @@ export async function chatCommand({ agent, auto = false, cwd = process.cwd(), in
       }
     }
   }
-  say(`Sessão encerrada (${turns} turno(s)).`);
+  say(pretty
+    ? chalk.dim(`Sessão encerrada (${turns} turno(s)).`)
+    : `Sessão encerrada (${turns} turno(s)).`);
   return { success: true, turns };
 }
