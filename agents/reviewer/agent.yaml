@@ -1,6 +1,8 @@
 name: reviewer
 description: Revisão de alterações
-engine: opencode
+engine: codex
+model: gpt-5.6-terra
+reasoningEffort: high
 role: reviewer
 skills: [code-review]
 knowledge: []

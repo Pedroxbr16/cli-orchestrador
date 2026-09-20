@@ -38,7 +38,7 @@ export function isWriteContext(context) {
   return permissions.filesystem === 'read-write' || permissions.gitLocal === 'read-write';
 }
 
-export function buildCodexArgs({ worktree, outFile, prompt, model }) {
+export function buildCodexArgs({ worktree, outFile, prompt, model, reasoningEffort }) {
   if (typeof worktree !== 'string' || !worktree) throw engineError('worktree inválida.', 'AGENT_EXECUTION_ERROR');
   if (typeof outFile !== 'string' || !outFile) throw engineError('arquivo de saída inválido.', 'AGENT_EXECUTION_ERROR');
   if (typeof prompt !== 'string' || !prompt.trim()) throw engineError('O prompt não pode estar vazio.', 'AGENT_EXECUTION_ERROR');
@@ -52,9 +52,17 @@ export function buildCodexArgs({ worktree, outFile, prompt, model }) {
     }
     modelArgs = ['-m', model];
   }
+  let effortArgs = [];
+  if (reasoningEffort !== undefined && reasoningEffort !== null) {
+    if (!['low', 'medium', 'high', 'xhigh'].includes(reasoningEffort)) {
+      throw engineError('reasoning effort inválido para o Codex.', 'AGENT_EXECUTION_ERROR');
+    }
+    effortArgs = ['-c', `model_reasoning_effort="${reasoningEffort}"`];
+  }
   const args = [
     'exec', '-s', 'read-only', '-c', 'approval_policy="never"',
     ...modelArgs,
+    ...effortArgs,
     '--ignore-user-config', '--ignore-rules', '--ephemeral', '--json',
     '-C', worktree, '-o', outFile, prompt,
   ];
@@ -179,12 +187,19 @@ export class CodexAdapter {
     const outFile = join(scratch, 'answer.md');
     const base = {
       agent: context.agent, engine: 'codex', model: context.model ?? null,
+      reasoningEffort: context.reasoningEffort ?? null,
       sandbox: 'read-only', approval: 'never',
       worktree: created.path, branch: created.branch,
     };
     const started = Date.now();
     try {
-      const args = buildCodexArgs({ worktree, outFile, prompt, model: context.model });
+      const args = buildCodexArgs({
+        worktree,
+        outFile,
+        prompt,
+        model: context.model,
+        reasoningEffort: context.reasoningEffort,
+      });
       const result = await run(this.command, args, { cwd, timeout, env: codexEnv(), cancelSignal });
       const durationMs = Date.now() - started;
       if (result.timedOut || result.code === 'COMMAND_TIMEOUT') {

@@ -92,7 +92,12 @@ test('CLI lista, cria, mostra e bloqueia execução de perfis', async (t) => {
   const cwd = await fixture(t);
   const run = (args) => exec(process.execPath, [cli, ...args], { cwd });
   await run(['agent', 'create', 'backend', '--engine', 'codex']);
-  assert.match((await run(['agents'])).stdout, /backend \| codex/);
+  assert.match(
+    (await run(['agents'])).stdout,
+    /backend \| role=developer \| engine=codex \| model=default/,
+  );
+  const options = JSON.parse((await run(['agent', 'options'])).stdout);
+  assert.deepEqual(options.engines.map((entry) => entry.id), ['codex', 'claude', 'opencode']);
   const shown = JSON.parse((await run(['agent', 'show', 'backend'])).stdout);
   assert.equal(shown.execution, 'blocked');
   assert.equal(shown.effectivePermissions.gitRemote, 'disabled');

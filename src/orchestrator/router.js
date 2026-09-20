@@ -32,7 +32,15 @@ export async function routeTask(task, { cwd = process.cwd(), skills = [] } = {})
     const matched = (intents[normalize(agent.role)] ?? []).filter((term) => words.some((word) => word.startsWith(term)));
     score += matched.length * 3;
     if (matched.length) reasons.push('intenção compatível com ' + agent.role + ': ' + matched.join(', '));
-    candidates.push({ agent: agent.name, engine: agent.engine, model: agent.model ?? null, role: agent.role, score, reasons });
+    candidates.push({
+      agent: agent.name,
+      engine: agent.engine,
+      model: agent.model ?? null,
+      reasoningEffort: agent.reasoningEffort ?? null,
+      role: agent.role,
+      score,
+      reasons,
+    });
   }
   candidates.sort((a, b) => b.score - a.score || a.agent.localeCompare(b.agent));
   const ignored = entries.filter((entry) => entry.error).map(({ name, error }) => ({ name, error }));

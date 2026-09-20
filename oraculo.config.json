@@ -3,7 +3,7 @@
     "name": "cli-orquestror"
   },
   "agents": {
-    "default": "opencode"
+    "default": "developer"
   },
   "permissions": {
     "filesystem": "read-write",

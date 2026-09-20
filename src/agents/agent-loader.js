@@ -11,6 +11,7 @@ export const agentSchema = z.object({
   description: z.string().trim().min(1).max(1000),
   engine: z.enum(['codex', 'claude', 'opencode']),
   model: z.string().trim().min(1).max(200).optional(),
+  reasoningEffort: z.enum(['low', 'medium', 'high', 'xhigh']).optional(),
   role: z.string().trim().min(1).max(100).default('developer'),
   skills: z.array(z.string().trim().min(1).max(100)).max(100).default([]),
   knowledge: z.array(z.string().trim().min(1).max(300)).max(100).default([]),
@@ -95,11 +96,15 @@ export async function listAgents({ cwd = process.cwd() } = {}) {
   return agents;
 }
 
-export async function createAgent(name, { cwd = process.cwd(), engine = 'opencode', role = 'developer', model, knowledgeWrite = 'both' } = {}) {
+export async function createAgent(name, {
+  cwd = process.cwd(), engine = 'opencode', role = 'developer', model,
+  reasoningEffort, knowledgeWrite = 'both',
+} = {}) {
   validateAgentName(name);
   const definition = agentSchema.parse({
     name, engine, role, description: 'Agent personalizado: ' + name, prompt: './prompt.md',
     ...(model === undefined ? {} : { model }),
+    ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
     knowledgeWrite,
     permissions: { gitRemote: 'disabled' },
   });

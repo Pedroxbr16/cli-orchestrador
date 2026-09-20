@@ -1,6 +1,8 @@
 name: architect
 description: Planejamento e arquitetura
-engine: opencode
+engine: codex
+model: gpt-6-astra
+reasoningEffort: high
 role: architect
 skills: [architecture]
 knowledge: []

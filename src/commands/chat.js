@@ -1,6 +1,6 @@
 import readline from 'node:readline';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { Chalk } from 'chalk';
 import ora from 'ora';
 import { runAgent } from '../agents/agent-runner.js';
@@ -9,7 +9,7 @@ import { loadConfig } from '../config/loader.js';
 import { requireAccess } from '../permissions/policies.js';
 import { AgentManager } from '../agents/agent-manager.js';
 import { listAgents } from '../agents/agent-loader.js';
-import { agentPermissionsCommand } from './agent.js';
+import { agentOptionsCommand, agentPermissionsCommand, updateAgentCommand } from './agent.js';
 import { listWorktrees, createWorktree, removeWorktree } from '../git/worktree.js';
 
 // Histórico persistente do REPL: últimas linhas, sem segredos além do que o
@@ -51,21 +51,39 @@ export async function chatCommand({ agent, auto = false, cwd = process.cwd(), in
   });
   const manager = new AgentManager();
   // Cores só com TTY: em pipe a saída fica limpa e determinística.
-  // Layout bonito (caixas, ❯, barras) só com TTY: pipe é texto puro.
+  // O layout visual só aparece com TTY: em pipe a saída permanece limpa e
+  // determinística para scripts e testes.
   const chalk = new Chalk({ level: output.isTTY ? undefined : 0 });
   const pretty = Boolean(output.isTTY);
-  const width = Math.max(40, Math.min(72, output.columns || 60));
   const say = (line = '') => output.write(line + '\n');
-  const frame = (raw, style = (s) => s) => {
-    const cell = raw.length > width - 4 ? raw.slice(0, width - 7) + '...' : raw.padEnd(width - 4);
-    return chalk.blue('│') + ' ' + style(cell) + ' ' + chalk.blue('│');
-  };
-  const top = () => say(chalk.blue(`╭${'─'.repeat(width - 2)}╮`));
-  const bottom = () => say(chalk.blue(`╰${'─'.repeat(width - 2)}╯`));
-  const rule = () => say(chalk.blue.dim('─'.repeat(width)));
-  const answerBlock = (text) => {
+  const accent = chalk.cyan;
+  const answerBlock = (text, label) => {
     if (!pretty) return say(text);
-    for (const line of String(text).trimEnd().split('\n')) say(chalk.blue('│ ') + line);
+    say();
+    say(`  ${accent('◆')} ${chalk.bold(label)}`);
+    for (const line of String(text).trimEnd().split('\n')) {
+      say(`  ${chalk.dim('│')} ${line}`);
+    }
+    say();
+  };
+  const safeProjectName = basename(cwd)
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
+    .slice(0, 48) || 'projeto';
+  const renderWelcome = (selected) => {
+    const wide = (output.columns || 80) >= 44;
+    say();
+    if (wide) {
+      say(accent('  █▀█ █▀▄ ▄▀█ █▀▀ █ █ █   █▀█'));
+      say(accent('  █▄█ █▀▄ █▀█ █▄▄ █▄█ █▄▄ █▄█'));
+    } else {
+      say(accent.bold('  ORACULO'));
+    }
+    say();
+    say(`  ${chalk.bold('Agentes para o seu projeto')}  ${chalk.dim(safeProjectName)}`);
+    say();
+    say(`  ${accent('◆')} ${chalk.bold(selected ?? 'auto')}  ${chalk.dim(selected ? 'agente ativo' : 'escolhe o agente para cada tarefa')}`);
+    say(`  ${chalk.dim('/help')}  ${chalk.dim('ver comandos')}`);
+    say();
   };
   const describe = async (name) => {
     try {
@@ -91,15 +109,7 @@ export async function chatCommand({ agent, auto = false, cwd = process.cwd(), in
       say(chalk.bold('Oraculo chat') + ' — comandos: /help, /agents, /agent [nome], /permissions, /worktrees, /sair.');
       say(current ? `Agente: ${chalk.cyan(await describe(current))}` : 'Agente: auto (roteado por mensagem).');
     } else {
-      top();
-      say(frame('ORACULO  ·  interactive chat', (s) => chalk.bold.white(s)));
-      say(frame('/help · /agents · /agent · /permissions · /worktrees · /sair', (s) => chalk.dim(s)));
-      bottom();
-      if (current) {
-        say(`${chalk.blue('◆')} ${chalk.bold(chalk.blue(current))}`);
-      } else {
-        say(`${chalk.blue('◆')} ${chalk.bold(chalk.blue('auto'))}  ${chalk.dim('roteado por mensagem')}`);
-      }
+      renderWelcome(current);
     }
 
     // Histórico da sessão anterior; ausência de arquivo é normal na 1ª sessão.
@@ -108,7 +118,7 @@ export async function chatCommand({ agent, auto = false, cwd = process.cwd(), in
     rl.history.push(...[...hist].reverse());
     for (;;) {
       const label = current ?? 'auto';
-      if (pretty) output.write(`${chalk.dim(label)} ${chalk.blue('❯')} `);
+      if (pretty) output.write(`  ${accent('┃')}  `);
       else output.write(`oraculo/${label}> `);
       const next = await lines.next();
       if (next.done) break;
@@ -117,8 +127,10 @@ export async function chatCommand({ agent, auto = false, cwd = process.cwd(), in
       if (['/sair', '/exit', '/quit'].includes(text)) break;
       if (text === '/help' || text === '/ajuda') {
         say(chalk.cyan('/help') + ' — esta ajuda');
-        say(chalk.cyan('/agents') + ' — lista os perfis e suas permissões');
+        say(chalk.cyan('/agents') + ' — lista perfis, engines, modelos e permissões');
         say(chalk.cyan('/agent [nome]') + ' — mostra o agente atual ou troca de agente');
+        say(chalk.cyan('/agent options') + ' — lista engines e formatos de modelo');
+        say(chalk.cyan('/agent config <nome> [engine|model|effort] [valor]') + ' — consulta ou altera o perfil');
         say(chalk.cyan('/permissions [agente] [campo] [valor]') + ' — consulta ou altera permissões');
         say(chalk.cyan('/worktrees') + ' — lista worktrees');
         say(chalk.cyan('/worktree create <nome> [branch]') + ' — cria uma worktree');
@@ -141,12 +153,28 @@ export async function chatCommand({ agent, auto = false, cwd = process.cwd(), in
           const worktree = permissions.filesystem === permissions.gitLocal
             ? (permissions.filesystem ?? 'project-default')
             : 'mixed';
-          const selected = current === entry.name ? '* ' : '  ';
-          say(selected + chalk.cyan(entry.name) + ' | ' + entry.agent.role +
-            ' | worktree=' + worktree +
-            ' | gitRemote=' + (permissions.gitRemote ?? 'project-default') +
-            ' | knowledge=' + (entry.agent.knowledgeWrite ?? 'disabled'));
+          const selected = current === entry.name;
+          const model = entry.agent.model ?? 'default';
+          const effort = entry.agent.reasoningEffort ?? 'default';
+          if (pretty) {
+            say(`  ${selected ? accent('◆') : ' '} ${chalk.cyan(entry.name)}  ${chalk.dim(entry.agent.role)}`);
+            say(chalk.dim(
+              `      ${entry.agent.engine} · ${model} · effort ${effort} · worktree ${worktree} · remote ${permissions.gitRemote ?? 'project-default'} · knowledge ${entry.agent.knowledgeWrite ?? 'disabled'}`
+            ));
+          } else {
+            say((selected ? '* ' : '  ') + entry.name +
+              ' | role=' + entry.agent.role +
+              ' | engine=' + entry.agent.engine +
+              ' | model=' + model +
+              ' | effort=' + effort +
+              ' | worktree=' + worktree +
+              ' | gitRemote=' + (permissions.gitRemote ?? 'project-default') +
+              ' | knowledge=' + (entry.agent.knowledgeWrite ?? 'disabled'));
+          }
         }
+        say(pretty
+          ? chalk.dim('  /agent options · /agent config <nome>')
+          : 'Opções: /agent options | Configurar: /agent config <nome>');
         continue;
       }
       if (text === '/permissions' || text.startsWith('/permissions ')) {
@@ -223,7 +251,67 @@ export async function chatCommand({ agent, auto = false, cwd = process.cwd(), in
         continue;
       }
       if (text === '/agent' || text.startsWith('/agent ')) {
-        const name = text.slice('/agent'.length).trim();
+        const args = text.slice('/agent'.length).trim().split(/\s+/).filter(Boolean);
+        if (args[0] === 'options') {
+          if (args.length !== 1) {
+            say('Uso: /agent options');
+            continue;
+          }
+          const report = agentOptionsCommand({ print: false });
+          say(pretty ? `  ${chalk.bold('Engines e modelos')}` : 'Engines e modelos:');
+          for (const option of report.engines) {
+            say(`  ${chalk.cyan(option.id)}  ${option.models.join(' | ')}`);
+            say(`    ${chalk.dim(option.discovery)}`);
+          }
+          say(`  effort  ${report.reasoningEfforts.join(' | ')}`);
+          say(chalk.dim('  default usa o modelo ou esforço padrão do engine.'));
+          continue;
+        }
+        if (args[0] === 'config') {
+          const [, target, field, value, ...extra] = args;
+          if (!target || extra.length || (field && value === undefined) ||
+              (field && !['engine', 'model', 'effort'].includes(field))) {
+            say('Uso: /agent config <nome> [engine|model|effort] [valor|default]');
+            continue;
+          }
+          try {
+            if (!field) {
+              const resolved = await manager.resolveAgent(target, { cwd });
+              if (!resolved.definition) throw new Error('use um perfil definido em agents/.');
+              say(
+                `${chalk.cyan(target)} | engine=${resolved.definition.engine}` +
+                ` | model=${resolved.definition.model ?? 'default'}` +
+                ` | effort=${resolved.definition.reasoningEffort ?? 'default'}`
+              );
+              say(chalk.dim('Engines: codex, claude, opencode · use /agent options para modelos e esforços.'));
+            } else {
+              const options = { cwd, print: false };
+              if (field === 'engine') {
+                options.engine = value;
+                options.clearModel = true;
+              } else if (field === 'model' && value === 'default') {
+                options.clearModel = true;
+              } else if (field === 'model') {
+                options.model = value;
+              } else if (value === 'default') {
+                options.clearReasoningEffort = true;
+              } else {
+                options.reasoningEffort = value;
+              }
+              const report = await updateAgentCommand(target, options);
+              say(
+                `${chalk.cyan(target)} | engine=${report.agent.engine}` +
+                ` | model=${report.agent.model ?? 'default'}` +
+                ` | effort=${report.agent.reasoningEffort ?? 'default'}`
+              );
+              if (field === 'engine') say(chalk.dim('Modelo redefinido para o padrão do novo engine.'));
+            }
+          } catch (error) {
+            say(chalk.red(`Erro: ${error.message}`));
+          }
+          continue;
+        }
+        const name = args.join(' ');
         if (!name) {
           say(current ? `Agente atual: ${chalk.cyan(await describe(current))}` : 'Agente atual: auto.');
           continue;
@@ -231,11 +319,16 @@ export async function chatCommand({ agent, auto = false, cwd = process.cwd(), in
         if (name === 'auto') {
           current = null;
           auto = true;
-          say(`Agente: ${chalk.cyan('auto')}`);
+          say(pretty
+            ? `  ${accent('◆')} ${chalk.bold('auto')}  ${chalk.dim('roteamento automático')}`
+            : `Agente: ${chalk.cyan('auto')}`);
           continue;
         }
         try {
-          say(`Agente: ${chalk.cyan(await describe(name))}`);
+          const selected = await describe(name);
+          say(pretty
+            ? `  ${accent('◆')} ${chalk.bold(selected)}  ${chalk.dim('agente ativo')}`
+            : `Agente: ${chalk.cyan(selected)}`);
           current = name;
           auto = false;
         } catch (error) {
@@ -248,22 +341,23 @@ export async function chatCommand({ agent, auto = false, cwd = process.cwd(), in
       // ou stream simples a saída fica limpa para scripts/testes.
       const interactive = Boolean(output.isTTY) && typeof output.cursorTo === 'function' && (output.columns || 0) > 0;
       const spinner = interactive
-        ? ora({ text: `Consultando ${current ?? 'agente'}…`, stream: output, isEnabled: true }).start()
+        ? ora({ text: 'Pensando…', stream: output, isEnabled: true, color: 'cyan' }).start()
         : null;
       try {
         let target = current;
         if (auto) {
           const report = await routeTask(text, { cwd });
           target = report.selected.agent;
-          const route = `→ ${target}: ${report.selected.reasons.join('; ') || 'padrão'}`;
-          if (spinner) spinner.text = route;
+          const reason = report.selected.reasons.join('; ') || 'padrão';
+          const route = `→ ${target}: ${reason}`;
+          if (spinner) spinner.text = `${target} · ${reason}`;
           else say(route);
         }
         running = new AbortController();
         try {
           const result = await runAgent({ agent: target, prompt: text, cwd, cancelSignal: running.signal });
-          if (spinner) spinner.succeed('Resposta recebida.');
-          if (result?.output) answerBlock(result.output);
+          if (spinner) spinner.stop();
+          if (result?.output) answerBlock(result.output, target);
           if (result?.knowledge?.written?.length) say(chalk.dim('Knowledge: ' + result.knowledge.written.join(', ')));
           if (result?.knowledge?.errors?.length) say(chalk.yellow('Aviso de knowledge: ' + result.knowledge.errors.join('; ')));
           hist.push(text);
@@ -298,7 +392,7 @@ export async function chatCommand({ agent, auto = false, cwd = process.cwd(), in
     }
   }
   say(pretty
-    ? chalk.dim(`Sessão encerrada (${turns} turno(s)).`)
+    ? chalk.dim(`  Sessão encerrada · ${turns} turno(s)`)
     : `Sessão encerrada (${turns} turno(s)).`);
   return { success: true, turns };
 }

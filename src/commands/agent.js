@@ -13,14 +13,48 @@ async function checkAccess(cwd, write = false) {
   return config;
 }
 
+export const REASONING_EFFORTS = Object.freeze(['low', 'medium', 'high', 'xhigh']);
+
+export const ENGINE_OPTIONS = Object.freeze([
+  {
+    id: 'codex',
+    models: ['default', '<model-id>'],
+    discovery: 'abra o Codex e use /model para ver os modelos disponíveis na conta',
+  },
+  {
+    id: 'claude',
+    models: ['default', 'sonnet', 'opus', 'haiku', '<model-id>'],
+    discovery: 'aceita aliases ou o ID completo suportado pelo Claude Code',
+  },
+  {
+    id: 'opencode',
+    models: ['default', '<provider>/<model>'],
+    discovery: 'execute opencode models para listar os modelos dos provedores conectados',
+  },
+]);
+
+export function agentOptionsCommand({ print = true } = {}) {
+  const report = {
+    engines: ENGINE_OPTIONS.map((entry) => ({ ...entry, models: [...entry.models] })),
+    reasoningEfforts: [...REASONING_EFFORTS],
+  };
+  if (print) console.log(JSON.stringify(report, null, 2));
+  return report;
+}
+
 export async function agentsCommand({ cwd = process.cwd() } = {}) {
   await checkAccess(cwd);
   console.log('Engines: codex, claude, opencode');
+  console.log('Modelos: use oraculo agent options para formatos e descoberta.');
   const entries = await listAgents({ cwd });
   if (!entries.length) console.log('Nenhum agent personalizado. Use oraculo agent create <nome>.');
   for (const entry of entries) {
     console.log(entry.error ? '[ERRO] ' + entry.name + ': ' + entry.error :
-      entry.name + ' | ' + entry.agent.engine + ' | ' + entry.agent.role + ' | ' + entry.agent.description);
+      entry.name + ' | role=' + entry.agent.role +
+      ' | engine=' + entry.agent.engine +
+      ' | model=' + (entry.agent.model ?? 'default') +
+      ' | effort=' + (entry.agent.reasoningEffort ?? 'default') +
+      ' | ' + entry.agent.description);
   }
   return { success: entries.every((entry) => !entry.error), entries };
 }
@@ -48,9 +82,19 @@ export async function runAgentCommand(name, promptParts, { cwd = process.cwd() }
   return runAgent({ agent: name, prompt: promptParts.join(' '), cwd });
 }
 
-const UPDATABLE = ['engine', 'role', 'model', 'description'];
+const UPDATABLE = ['engine', 'role', 'model', 'reasoningEffort', 'description'];
 
-export async function updateAgentCommand(name, { cwd = process.cwd(), engine, role, model, description, clearModel = false } = {}) {
+export async function updateAgentCommand(name, {
+  cwd = process.cwd(),
+  engine,
+  role,
+  model,
+  reasoningEffort,
+  description,
+  clearModel = false,
+  clearReasoningEffort = false,
+  print = true,
+} = {}) {
   await checkAccess(cwd, true);
   let current;
   try {
@@ -64,12 +108,24 @@ export async function updateAgentCommand(name, { cwd = process.cwd(), engine, ro
   if (role !== undefined) patch.role = role;
   if (description !== undefined) patch.description = description;
   if (model !== undefined) patch.model = model;
+  if (reasoningEffort !== undefined) patch.reasoningEffort = reasoningEffort;
   if (clearModel) {
     if (model !== undefined) throw new Error('Use --model ou --clear-model, não ambos.');
     patch.model = undefined;
   }
+  if (clearReasoningEffort) {
+    if (reasoningEffort !== undefined) {
+      throw new Error('Use --reasoning-effort ou --clear-reasoning-effort, não ambos.');
+    }
+    patch.reasoningEffort = undefined;
+  }
   const fields = Object.keys(patch);
-  if (!fields.length) throw new Error('Nada para atualizar: informe --engine, --role, --model, --description ou --clear-model.');
+  if (!fields.length) {
+    throw new Error(
+      'Nada para atualizar: informe --engine, --role, --model, --reasoning-effort, ' +
+      '--description, --clear-model ou --clear-reasoning-effort.',
+    );
+  }
   const next = { ...current };
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) delete next[key];
@@ -81,7 +137,7 @@ export async function updateAgentCommand(name, { cwd = process.cwd(), engine, ro
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('agent.yaml precisa ser arquivo regular sem symlink.');
   await writeFile(file, stringify(parsed), { encoding: 'utf8', mode: 0o600 });
   const report = { name, updated: fields, agent: parsed };
-  console.log(JSON.stringify(report, null, 2));
+  if (print) console.log(JSON.stringify(report, null, 2));
   return report;
 }
 export async function previewAgentContext(name, promptParts, { cwd = process.cwd() } = {}) {

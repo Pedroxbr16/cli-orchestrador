@@ -66,9 +66,12 @@ async function fakeCodex(t, { dirty = false } = {}) {
 }
 
 test('argv trava sandbox read-only e recusa flags perigosas', () => {
-  const args = buildCodexArgs({ worktree: '/wt/x', outFile: '/tmp/o.md', prompt: 'revise' });
+  const args = buildCodexArgs({
+    worktree: '/wt/x', outFile: '/tmp/o.md', prompt: 'revise', reasoningEffort: 'high',
+  });
   assert.ok(args.includes('read-only'));
   assert.ok(args.includes('approval_policy="never"'));
+  assert.ok(args.includes('model_reasoning_effort="high"'));
   for (const flag of ['--ignore-user-config', '--ignore-rules', '--ephemeral', '--json']) {
     assert.ok(args.includes(flag));
   }

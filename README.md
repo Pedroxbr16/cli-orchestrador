@@ -206,9 +206,10 @@ iniciar o engine.
 
 ```bash
 oraculo agents
+oraculo agent options
 oraculo agent create backend-developer --engine codex --role developer
-oraculo agent create revisor --engine claude --role reviewer --model sonnet
-oraculo agent create arquiteto --engine codex --role architect --model astra
+oraculo agent create revisor --engine codex --role reviewer --model gpt-5.6-terra --reasoning-effort high
+oraculo agent create arquiteto --engine codex --role architect --model gpt-6-astra --reasoning-effort high
 oraculo agent show backend-developer
 oraculo agent run backend-developer "implemente o endpoint"
 ```
@@ -216,7 +217,7 @@ oraculo agent run backend-developer "implemente o endpoint"
 `create` gera `agents/<nome>/agent.yaml` e `prompt.md`, sem sobrescrever
 pastas ou arquivos existentes. O engine padrão para criação é OpenCode.
 `--model` é opcional e define o modelo do engine naquele perfil
-(por exemplo, `astra` no Codex, `sonnet` no Claude Code
+(por exemplo, `gpt-6-astra` no Codex, `sonnet` no Claude Code
 ou `provedor/modelo` no OpenCode); omitido,
 o engine usa o modelo padrão dele. O Oraculo repassa o valor sem validar
 catálogo — modelo desconhecido é erro do engine, não do Oraculo.
@@ -224,15 +225,16 @@ catálogo — modelo desconhecido é erro do engine, não do Oraculo.
 Troque engine, papel, modelo ou descrição sem abrir YAML na mão:
 
 ```bash
-oraculo agent update arquiteto --model astra
-oraculo agent update dev --engine opencode --model muse-spark
-oraculo agent update dev --clear-model
+oraculo agent update arquiteto --model gpt-6-astra --reasoning-effort high
+oraculo agent update developer --engine opencode --model opencode/muse-spark-1.3-contributor-free --reasoning-effort xhigh
+oraculo agent update developer --clear-model --clear-reasoning-effort
 ```
 
 `update` valida tudo pelo mesmo schema da criação (engine inválido, papel
 vazio e modelo vazio são recusados sem gravar), nunca toca no `prompt.md` e
-exige filesystem em read-write. Sem flags, informa que não há o que
-atualizar. Skills continuam editadas no YAML; permissões e escopo de escrita
+exige filesystem em read-write. `--reasoning-effort` aceita `low`,
+`medium`, `high` ou `xhigh`; `--clear-reasoning-effort` volta ao padrão
+do engine. Sem flags, informa que não há o que atualizar. Skills continuam editadas no YAML; permissões e escopo de escrita
 em knowledge também podem ser alterados por comando.
 
 ### Permissões por comando
@@ -258,6 +260,13 @@ No chat, os equivalentes são:
 
 ```text
 /agents
+/agent options
+/agent config developer
+/agent config developer engine claude
+/agent config developer model opencode/muse-spark-1.3-contributor-free
+/agent config developer effort xhigh
+/agent config developer model default
+/agent config developer effort default
 /permissions developer
 /permissions developer worktree read-only
 /permissions developer git-remote disabled
@@ -269,14 +278,20 @@ No chat, os equivalentes são:
 
 Esses comandos são tratados pelo REPL e nunca são enviados como prompt ao
 agente. Por isso `/agents` não produz mais `AGENT_POLICY_UNSUPPORTED`.
-Edite os dois arquivos para especializar o perfil. Nomes usam letras
+`/agents` mostra engine e modelo atuais; `/agent options` lista os formatos
+aceitos por engine. Como os catálogos dependem da conta e dos provedores,
+o Codex lista os disponíveis em `/model`, o Claude Code aceita aliases como
+`sonnet`, `opus` e `haiku`, e o OpenCode fornece `opencode models`.
+Ao trocar o engine pelo chat, o modelo anterior é removido e o novo engine
+volta ao padrão. Edite os dois arquivos para especializar o perfil. Nomes usam letras
 minúsculas, números e hífens (até 64 caracteres); nomes de engines são reservados.
 
 ```yaml
 name: backend-developer
 description: Especialista em backend Node.js
 engine: codex
-model: astra
+model: gpt-6-astra
+reasoningEffort: high
 role: developer
 skills:
   - nodejs
@@ -291,7 +306,8 @@ prompt: ./prompt.md
 ```
 
 O nome do YAML deve corresponder à pasta. `model` é opcional (1 a 200
-caracteres, sem `-` inicial); campos desconhecidos, tipos incorretos,
+caracteres, sem `-` inicial); `reasoningEffort` também é opcional e aceita
+`low`, `medium`, `high` ou `xhigh`; campos desconhecidos, tipos incorretos,
 chaves duplicadas, aliases YAML, arquivos vazios e engines não suportados são
 rejeitados. YAML e prompt aceitam até 64 KiB cada. O prompt deve ser um arquivo
 diretamente dentro da pasta do agent; symlinks e caminhos externos são recusados.
@@ -619,30 +635,34 @@ permissions:
 Os testes usam um executável Claude simulado, sem rede, login ou consumo de
 quota, e verificam sucesso, limpeza, falhas tipadas e detecção de escrita.
 
-## Modelo por agente e chat interativo (Fase 11)
+## Modelo, esforço e chat interativo (Fase 11)
 
-Cada perfil define **quem executa e com qual modelo**:
+Cada perfil define **quem executa, com qual modelo e em qual esforço**:
 
 ```yaml
-# agents/arquiteto/agent.yaml
-name: arquiteto
+# agents/architect/agent.yaml
+name: architect
 engine: codex
-model: astra
+model: gpt-6-astra
+reasoningEffort: high
 role: architect
 ```
 
 ```yaml
-# agents/dev/agent.yaml
-name: dev
+# agents/developer/agent.yaml
+name: developer
 engine: opencode
-model: muse-spark
+model: opencode/muse-spark-1.3-contributor-free
+reasoningEffort: xhigh
 role: developer
 ```
 
-`route` inclui `model` em `selected` e `candidates` (nulo no fallback para
-engine direto); `agent show` exibe o modelo; o Codex recebe `-m <model>` e o
-Claude Code recebe `--model <model>` (omitido sem `--model`). Para OpenCode,
-o modelo fica registrado no perfil para uma futura integração segura.
+`route` inclui `model` e `reasoningEffort` em `selected` e
+`candidates`; `agent show` exibe ambos. O Codex recebe `-m <model>` e
+`model_reasoning_effort`; o Claude Code recebe `--model <model>`. Para
+OpenCode, modelo e esforço ficam registrados no perfil e correspondem a
+`--model` e `--variant` quando a integração segura de escrita estiver
+disponível.
 
 ```bash
 oraculo
@@ -652,12 +672,13 @@ oraculo chat arquiteto
 
 Executar somente `oraculo` abre o chat diretamente. Sem agente explícito, cada
 mensagem é roteada para um perfil definido em `agents/`. A interface mostra
-apenas o nome do perfil (`→ agente: motivos`); engine e modelo permanecem
-detalhes internos. Nomes crus de engine, como `codex`, `claude` e
+apenas o nome do perfil (`→ agente: motivos`); engine e modelo aparecem
+somente nos comandos administrativos `/agents` e `/agent config`. Nomes crus de engine, como `codex`, `claude` e
 `opencode`, não são aceitos por `/agent` nem por `oraculo chat <nome>`.
 
 Comandos: `/help`, `/agents`, `/agent [nome]`, `/agent auto`,
-`/permissions`, `/worktrees`, `/worktree create/remove` e `/sair`
+`/agent options`, `/agent config`, `/permissions`, `/worktrees`,
+`/worktree create/remove` e `/sair`
 (Ctrl+D também encerra); Ctrl+C cancela o turno em andamento sem sair. Linha vazia é ignorada; erro de um turno
 não encerra a sessão. Entrada por pipe funciona (processa até EOF):
 `echo "revise X" | oraculo chat revisor`.
@@ -668,20 +689,21 @@ Code read-only executam; OpenCode e escrita recusam com
 `AGENT_POLICY_UNSUPPORTED`. Sem persistência de histórico entre sessões.
 
 Com TTY, cada turno mostra spinner azul (`ora`) e cores (`chalk`); em pipe a saída
-é texto puro e determinístico. Com terminal, a sessão abre em caixa azul
-estilo OpenCode, prompt `❯` e respostas com barra lateral `│`:
+é texto puro e determinístico. A sessão usa uma abertura compacta inspirada no
+OpenCode, prompt com barra `┃` e respostas identificadas pelo perfil:
 
 ```text
-╭────────────────────────────────────────╮
-│ ORACULO  ·  interactive chat           │
-│ /help · /agents · /permissions · ...  │
-╰────────────────────────────────────────╯
-◆ leitor
-leitor ❯ leia f.txt
-⠋ Consultando leitor…
-✔ Resposta recebida.
-│ O Oraculo responde em
-│ duas linhas.
+  █▀█ █▀▄ ▄▀█ █▀▀ █ █ █   █▀█
+  █▄█ █▀▄ █▀█ █▄▄ █▄█ █▄▄ █▄█
+
+  Agentes para o seu projeto  meu-projeto
+  ◆ auto  escolhe o agente para cada tarefa
+  /help  ver comandos
+
+  ┃  revise o projeto
+
+  ◆ revisor
+  │ O Oraculo responde aqui.
 ```
 
 O histórico das tarefas vai para
@@ -701,7 +723,7 @@ bloqueio dos adapters, timeout/cancelamento, operações em repositórios
 temporários, roteamento determinístico por intenção/skills, fallback,
 perfis inválidos, ciclo de vida de worktrees, execução Codex e Claude Code
 somente leitura, permissões por comando, escrita/deduplicação de knowledge,
-modelo por agente (`create --model`, `agent update`) e chat interativo
+modelo e esforço por agente (`create --model --reasoning-effort`, `agent update`) e chat interativo
 (spinner/cores no TTY, histórico capado
 em `.oraculo/chat-history`, corrida de pipe corrigida), init idempotente
 e config get/set/unset

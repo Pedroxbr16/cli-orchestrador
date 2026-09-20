@@ -13,7 +13,10 @@ import chalk from 'chalk';
 import { askCommand } from './commands/ask.js';
 import { doctorCommand } from './commands/doctor.js';
 import { execCommand } from './commands/exec.js';
-import { agentsCommand, createAgentCommand, showAgentCommand, runAgentCommand, previewAgentContext, updateAgentCommand, agentPermissionsCommand } from './commands/agent.js';
+import {
+  agentsCommand, createAgentCommand, showAgentCommand, runAgentCommand, previewAgentContext,
+  updateAgentCommand, agentPermissionsCommand, agentOptionsCommand,
+} from './commands/agent.js';
 
 const program = new Command();
 program.name('oraculo')
@@ -90,11 +93,15 @@ program.command('agents')
   .action(agentAction(() => agentsCommand()));
 
 const agent = program.command('agent').description('Gerencia agents personalizados');
+agent.command('options')
+  .description('Lista engines e formatos de modelo aceitos')
+  .action(agentAction((options) => agentOptionsCommand(options)));
 agent.command('create')
   .argument('<name>', 'Nome em letras minúsculas e hífens')
   .option('--engine <engine>', 'Engine: codex, claude ou opencode', 'opencode')
   .option('--role <role>', 'Responsabilidade do agent', 'developer')
-  .option('--model <model>', 'Modelo do engine (ex: codex "astra", claude "sonnet")')
+  .option('--model <model>', 'Modelo do engine (ex: gpt-6-astra, sonnet, provedor/modelo)')
+  .option('--reasoning-effort <level>', 'Esforço: low, medium, high ou xhigh')
   .action(agentAction((name, options) => createAgentCommand(name, options)));
 agent.command('show')
   .argument('<name>')
@@ -104,9 +111,11 @@ agent.command('update')
   .argument('<name>')
   .option('--engine <engine>', 'Engine: codex, claude ou opencode')
   .option('--role <role>', 'Responsabilidade do agent')
-  .option('--model <model>', 'Modelo do engine (ex: astra, provedor/modelo)')
+  .option('--model <model>', 'Modelo do engine (ex: gpt-6-astra, provedor/modelo)')
+  .option('--reasoning-effort <level>', 'Esforço: low, medium, high ou xhigh')
   .option('--description <text>', 'Descrição do perfil')
   .option('--clear-model', 'Remove o modelo (volta ao padrão do engine)')
+  .option('--clear-reasoning-effort', 'Remove o esforço definido no perfil')
   .action(agentAction((name, options) => updateAgentCommand(name, options)));
 agent.command('permissions')
   .description('Mostra ou altera permissões do perfil')

@@ -6,7 +6,8 @@ export function buildAgentContext(agent, task, config) {
     key, levels[Math.min(levels.indexOf(projectLevel), levels.indexOf(agent.permissions[key] ?? projectLevel))],
   ]));
   return {
-    agent: agent.name, engine: agent.engine, model: agent.model ?? null, role: agent.role,
+    agent: agent.name, engine: agent.engine, model: agent.model ?? null,
+    reasoningEffort: agent.reasoningEffort ?? null, role: agent.role,
     instructions: agent.promptText, task,
     skills: [...agent.skills],
     knowledge: { requested: [...agent.knowledge], loaded: false },

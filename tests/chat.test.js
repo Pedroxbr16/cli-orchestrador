@@ -168,7 +168,7 @@ test('com TTY o spinner não quebra o turno', async (t) => {
   assert.match(text, /resposta simulada/);
 });
 
-test('com TTY o visual usa caixa, prompt ❯ e barra na resposta', async (t) => {
+test('com TTY o visual usa marca, prompt limpo e resposta identificada pelo agente', async (t) => {
   const cwd = await repository(t);
   const input = Readable.from(['revise sample.txt\n', '/sair\n']);
   let text = '';
@@ -180,11 +180,13 @@ test('com TTY o visual usa caixa, prompt ❯ e barra na resposta', async (t) => 
   output.moveCursor = () => true;
   const result = await chatCommand({ agent: 'revisor', cwd, input, output });
   assert.equal(result.turns, 1);
-  assert.match(text, /╭/);
-  assert.match(text, /╰/);
-  assert.match(text, /ORACULO/);
-  assert.match(text, /❯/);
-  assert.match(text, /│ resposta simulada/);
+  assert.match(text, /█▀█ █▀▄/);
+  assert.match(text, /Agentes para o seu projeto/);
+  assert.match(text, /◆ revisor\s+agente ativo/);
+  assert.match(text, /┃/);
+  assert.match(text, /◆ revisor[\s\S]*│ resposta simulada/);
+  assert.equal(text.includes('interactive chat'), false);
+  assert.equal(text.includes('/agents · /agent'), false);
   assert.equal(text.includes('oraculo/revisor>'), false);
   assert.equal(text.includes('codex'), false);
 });
@@ -204,12 +206,37 @@ test('chat administra agents, permissões e worktrees sem enviar tarefas ao engi
   ]);
   const result = await chatCommand({ cwd, input, output });
   assert.equal(result.turns, 0);
-  assert.match(text(), /revisor \| reviewer/);
+  assert.match(text(), /revisor \| role=reviewer \| engine=codex \| model=default/);
   assert.match(text(), /knowledge=both/);
   assert.match(text(), /worktree=read-only/);
   assert.match(text(), /Worktree criada: worktrees\/scratch/);
   assert.match(text(), /Worktree removida: worktrees\/scratch/);
   assert.equal(text().includes('AGENT_POLICY_UNSUPPORTED'), false);
-  assert.equal(text().includes('codex'), false);
-  assert.equal(text().includes('opencode'), false);
+});
+
+test('chat lista opções e altera engine e modelo de um perfil', async (t) => {
+  const cwd = await repository(t);
+  const { input, output, text } = session([
+    '/agent options',
+    '/agent config revisor',
+    '/agent config revisor model modelo-teste',
+    '/agent config revisor engine claude',
+    '/agent config revisor model sonnet',
+    '/agent config revisor effort xhigh',
+    '/agents',
+    '/sair',
+  ]);
+  const result = await chatCommand({ cwd, input, output });
+  assert.equal(result.turns, 0);
+  assert.match(text(), /codex\s+default \| <model-id>/);
+  assert.match(text(), /claude\s+default \| sonnet \| opus \| haiku/);
+  assert.match(text(), /opencode\s+default \| <provider>\/<model>/);
+  assert.match(text(), /effort\s+low \| medium \| high \| xhigh/);
+  assert.match(text(), /revisor \| engine=codex \| model=default/);
+  assert.match(text(), /Modelo redefinido para o padrão do novo engine/);
+  assert.match(text(), /revisor \| engine=claude \| model=sonnet \| effort=xhigh/);
+  const saved = await readFile(join(cwd, 'agents/revisor/agent.yaml'), 'utf8');
+  assert.match(saved, /engine: claude/);
+  assert.match(saved, /model: sonnet/);
+  assert.match(saved, /reasoningEffort: xhigh/);
 });
