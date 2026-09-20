@@ -35,7 +35,7 @@ test('doctor verifica ambiente sem executar tarefas de IA', async (t) => {
   assert.match(find(report, 'Permissões').message, /Git remoto=disabled/);
   assert.deepEqual(calls, [
     ['npm', ['--version']], ['git', ['--version']],
-    ['codex', ['--version']], ['opencode', ['--version']],
+    ['codex', ['--version']], ['claude', ['--version']], ['opencode', ['--version']],
     ['git', ['rev-parse', '--is-inside-work-tree']],
   ]);
 });

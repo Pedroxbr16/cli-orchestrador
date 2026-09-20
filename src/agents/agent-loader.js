@@ -4,16 +4,17 @@ import { parseDocument, stringify } from 'yaml';
 import { z } from 'zod';
 
 const nameSchema = z.string().max(64).regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/)
-  .refine((name) => !['codex', 'opencode'].includes(name), 'Nome reservado para engine.');
+  .refine((name) => !['codex', 'claude', 'opencode'].includes(name), 'Nome reservado para engine.');
 const level = z.enum(['disabled', 'read-only', 'read-write']);
 export const agentSchema = z.object({
   name: nameSchema,
   description: z.string().trim().min(1).max(1000),
-  engine: z.enum(['codex', 'opencode']),
+  engine: z.enum(['codex', 'claude', 'opencode']),
   model: z.string().trim().min(1).max(200).optional(),
   role: z.string().trim().min(1).max(100).default('developer'),
   skills: z.array(z.string().trim().min(1).max(100)).max(100).default([]),
   knowledge: z.array(z.string().trim().min(1).max(300)).max(100).default([]),
+  knowledgeWrite: z.enum(['disabled', 'project', 'global', 'both']).optional(),
   permissions: z.object({
     filesystem: level.optional(), gitLocal: level.optional(), gitRemote: level.optional(),
   }).strict().default({}),
@@ -28,7 +29,7 @@ function agentError(message, code = 'AGENT_INVALID') {
 
 export function validateAgentName(name) {
   const result = nameSchema.safeParse(name);
-  if (!result.success) throw agentError('Nome de agent inválido: use letras minúsculas, números e hífens; codex e opencode são reservados.');
+  if (!result.success) throw agentError('Nome de agent inválido: use letras minúsculas, números e hífens; codex, claude e opencode são reservados.');
   return name;
 }
 
@@ -94,11 +95,12 @@ export async function listAgents({ cwd = process.cwd() } = {}) {
   return agents;
 }
 
-export async function createAgent(name, { cwd = process.cwd(), engine = 'opencode', role = 'developer', model } = {}) {
+export async function createAgent(name, { cwd = process.cwd(), engine = 'opencode', role = 'developer', model, knowledgeWrite = 'both' } = {}) {
   validateAgentName(name);
   const definition = agentSchema.parse({
     name, engine, role, description: 'Agent personalizado: ' + name, prompt: './prompt.md',
     ...(model === undefined ? {} : { model }),
+    knowledgeWrite,
     permissions: { gitRemote: 'disabled' },
   });
   const root = join(cwd, 'agents');

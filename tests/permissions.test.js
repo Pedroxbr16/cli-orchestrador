@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { guardCommand } from '../src/permissions/command-guard.js';
 import { configSchema } from '../src/config/schema.js';
 import { CodexAdapter } from '../src/agents/adapters/codex.js';
+import { ClaudeCodeAdapter } from '../src/agents/adapters/claude.js';
 import { OpenCodeAdapter } from '../src/agents/adapters/opencode.js';
 
 const config = (overrides = {}) => configSchema.parse(overrides);
@@ -92,9 +93,11 @@ test('config rejeita timeout inválido e proteções não booleanas', () => {
   assert.equal(configSchema.safeParse({ git: { protection: { forcePush: 'true' } } }).success, false);
 });
 
-test('adapters recusam execução fora do contrato da Fase 10', async () => {
+test('adapters recusam execução fora do contrato seguro', async () => {
   await assert.rejects(new OpenCodeAdapter().run('teste'), { code: 'AGENT_POLICY_UNSUPPORTED' });
   await assert.rejects(new CodexAdapter().run('teste'), { code: 'AGENT_EXECUTION_ERROR' });
+  await assert.rejects(new ClaudeCodeAdapter().run('teste'), { code: 'AGENT_EXECUTION_ERROR' });
   const write = { permissions: { filesystem: 'read-write', gitLocal: 'read-only', gitRemote: 'disabled' } };
   await assert.rejects(new CodexAdapter().run('teste', { context: write }), { code: 'AGENT_POLICY_UNSUPPORTED' });
+  await assert.rejects(new ClaudeCodeAdapter().run('teste', { context: write }), { code: 'AGENT_POLICY_UNSUPPORTED' });
 });

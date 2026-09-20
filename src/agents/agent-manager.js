@@ -1,11 +1,13 @@
 import { loadAgent } from './agent-loader.js';
 import { CodexAdapter } from './adapters/codex.js';
+import { ClaudeCodeAdapter } from './adapters/claude.js';
 import { OpenCodeAdapter } from './adapters/opencode.js';
 
 export class AgentManager {
   constructor() {
     this.agents = {
       codex: new CodexAdapter(),
+      claude: new ClaudeCodeAdapter(),
       opencode: new OpenCodeAdapter(),
     };
   }

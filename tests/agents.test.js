@@ -49,7 +49,7 @@ test('YAML inválido, duplicatas, campos desconhecidos e engines inválidos falh
 
 test('nomes reservados, traversal e symlinks são recusados', async (t) => {
   const cwd = await fixture(t);
-  for (const name of ['../escape', 'codex', 'opencode', 'Upper', 'a/b', '']) {
+  for (const name of ['../escape', 'codex', 'claude', 'opencode', 'Upper', 'a/b', '']) {
     await assert.rejects(createAgent(name, { cwd }));
   }
   await createAgent('backend', { cwd });

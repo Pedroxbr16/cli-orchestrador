@@ -13,12 +13,21 @@ import chalk from 'chalk';
 import { askCommand } from './commands/ask.js';
 import { doctorCommand } from './commands/doctor.js';
 import { execCommand } from './commands/exec.js';
-import { agentsCommand, createAgentCommand, showAgentCommand, runAgentCommand, previewAgentContext, updateAgentCommand } from './commands/agent.js';
+import { agentsCommand, createAgentCommand, showAgentCommand, runAgentCommand, previewAgentContext, updateAgentCommand, agentPermissionsCommand } from './commands/agent.js';
 
 const program = new Command();
 program.name('oraculo')
   .description('Orquestrador local de agentes de desenvolvimento')
-  .version('0.1.0');
+  .version('0.1.0')
+  .action(async () => {
+    try {
+      const result = await chatCommand({ auto: true });
+      if (result?.success === false) process.exitCode = 1;
+    } catch (error) {
+      console.error(chalk.red('\nErro:'), error.code ?? '', error.message);
+      process.exitCode = 1;
+    }
+  });
 
 program.command('ask')
   .description('Envia uma tarefa diretamente para um agente')
@@ -83,9 +92,9 @@ program.command('agents')
 const agent = program.command('agent').description('Gerencia agents personalizados');
 agent.command('create')
   .argument('<name>', 'Nome em letras minúsculas e hífens')
-  .option('--engine <engine>', 'Engine: codex ou opencode', 'opencode')
+  .option('--engine <engine>', 'Engine: codex, claude ou opencode', 'opencode')
   .option('--role <role>', 'Responsabilidade do agent', 'developer')
-  .option('--model <model>', 'Modelo do engine (ex: codex "astra", opencode "provedor/modelo")')
+  .option('--model <model>', 'Modelo do engine (ex: codex "astra", claude "sonnet")')
   .action(agentAction((name, options) => createAgentCommand(name, options)));
 agent.command('show')
   .argument('<name>')
@@ -93,12 +102,24 @@ agent.command('show')
 agent.command('update')
   .description('Altera engine, role, model ou descrição sem editar YAML na mão')
   .argument('<name>')
-  .option('--engine <engine>', 'Engine: codex ou opencode')
+  .option('--engine <engine>', 'Engine: codex, claude ou opencode')
   .option('--role <role>', 'Responsabilidade do agent')
   .option('--model <model>', 'Modelo do engine (ex: astra, provedor/modelo)')
   .option('--description <text>', 'Descrição do perfil')
   .option('--clear-model', 'Remove o modelo (volta ao padrão do engine)')
   .action(agentAction((name, options) => updateAgentCommand(name, options)));
+agent.command('permissions')
+  .description('Mostra ou altera permissões do perfil')
+  .argument('<name>')
+  .option('--worktree <level>', 'Atalho para filesystem e Git local')
+  .option('--filesystem <level>', 'disabled, read-only ou read-write')
+  .option('--git-local <level>', 'disabled, read-only ou read-write')
+  .option('--git-remote <level>', 'disabled, read-only ou read-write')
+  .option('--knowledge <scope>', 'disabled, project, global ou both')
+  .action(agentAction((name, options) => agentPermissionsCommand(name, {
+    ...options,
+    knowledgeWrite: options.knowledge,
+  })));
 agent.command('run')
   .argument('<name>')
   .argument('<prompt...>')
@@ -158,7 +179,7 @@ program.command('route')
 
 program.command('chat')
   .description('Interface interativa pergunta-resposta sobre o mesmo funil do ask')
-  .argument('[agent]', 'Agente fixo da sessão (omitido usa agents.default)')
+  .argument('[agent]', 'Agente fixo da sessão (omitido roteia automaticamente)')
   .option('--auto', 'Roteia cada mensagem para um agent por skills e intenção')
   .action(async (agent, options) => {
     try {

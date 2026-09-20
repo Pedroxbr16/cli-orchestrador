@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createAgent, loadAgent } from '../src/agents/agent-loader.js';
-import { updateAgentCommand } from '../src/commands/agent.js';
+import { updateAgentCommand, agentPermissionsCommand } from '../src/commands/agent.js';
 
 const exec = promisify(execFile);
 const cli = resolve('src/cli.js');
@@ -62,4 +62,55 @@ test('CLI agent update troca o modelo do perfil', async (t) => {
   assert.deepEqual(report.updated, ['model']);
   assert.equal(JSON.parse((await run(['agent', 'show', 'dev'])).stdout).model, 'muse-spark');
   await assert.rejects(run(['agent', 'update', 'dev']), /Nada para atualizar/);
+});
+
+
+test('permissions altera Git, worktree e knowledge sem editar YAML', async (t) => {
+  const cwd = await fixture(t);
+  let report = await agentPermissionsCommand('dev', {
+    cwd,
+    worktree: 'read-only',
+    gitRemote: 'read-only',
+    knowledgeWrite: 'both',
+    print: false,
+  });
+  assert.deepEqual(report.updated, ['filesystem', 'gitLocal', 'gitRemote', 'knowledgeWrite']);
+  assert.equal(report.worktree, 'read-only');
+  assert.equal(report.effectivePermissions.gitLocal, 'read-only');
+  assert.equal(report.permissions.gitRemote, 'read-only');
+  assert.equal(report.effectivePermissions.gitRemote, 'disabled');
+  assert.equal(report.knowledgeWrite, 'both');
+
+  report = await agentPermissionsCommand('dev', { cwd, print: false });
+  assert.equal(report.permissions.filesystem, 'read-only');
+  assert.equal(report.permissions.gitLocal, 'read-only');
+  assert.equal(report.knowledgeWrite, 'both');
+  await assert.rejects(
+    agentPermissionsCommand('dev', {
+      cwd,
+      worktree: 'read-only',
+      gitLocal: 'read-write',
+      print: false,
+    }),
+    /conflita/,
+  );
+  await assert.rejects(
+    agentPermissionsCommand('dev', { cwd, knowledgeWrite: 'qualquer', print: false }),
+    /knowledge/,
+  );
+});
+
+test('CLI agent permissions aplica o atalho worktree', async (t) => {
+  const cwd = await fixture(t);
+  const report = JSON.parse((await exec(process.execPath, [
+    cli, 'agent', 'permissions', 'dev',
+    '--worktree', 'read-only',
+    '--knowledge', 'project',
+  ], { cwd })).stdout);
+  assert.equal(report.worktree, 'read-only');
+  assert.equal(report.knowledgeWrite, 'project');
+  const shown = JSON.parse((await exec(process.execPath, [
+    cli, 'agent', 'permissions', 'dev',
+  ], { cwd })).stdout);
+  assert.equal(shown.effectivePermissions.filesystem, 'read-only');
 });

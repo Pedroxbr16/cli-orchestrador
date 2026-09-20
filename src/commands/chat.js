@@ -8,6 +8,9 @@ import { routeTask } from '../orchestrator/router.js';
 import { loadConfig } from '../config/loader.js';
 import { requireAccess } from '../permissions/policies.js';
 import { AgentManager } from '../agents/agent-manager.js';
+import { listAgents } from '../agents/agent-loader.js';
+import { agentPermissionsCommand } from './agent.js';
+import { listWorktrees, createWorktree, removeWorktree } from '../git/worktree.js';
 
 // Histórico persistente do REPL: últimas linhas, sem segredos além do que o
 // próprio usuário digitou. Falha de persistência nunca interrompe a sessão.
@@ -34,6 +37,9 @@ async function saveHistory(cwd, lines) {
 // Nada aqui executa por conta própria; cada turno chama runAgent.
 export async function chatCommand({ agent, auto = false, cwd = process.cwd(), input = process.stdin, output = process.stdout } = {}) {
   if (agent && auto) throw new Error('Use --auto sem agente explícito, ou informe o agente sem --auto.');
+  // Sem agente explícito, o chat trabalha no modo automático. A interface
+  // pública conhece apenas perfis; engines são detalhes internos dos adapters.
+  auto = auto || !agent;
   // Anexa ao input ANTES de qualquer await: dados de pipe que chegam
   // durante o setup são enfileirados pelo iterador em vez de perdidos.
   const rl = readline.createInterface({ input, output, terminal: Boolean(output.isTTY), historySize: HISTORY_LIMIT });
@@ -64,10 +70,10 @@ export async function chatCommand({ agent, auto = false, cwd = process.cwd(), in
   const describe = async (name) => {
     try {
       const resolved = await manager.resolveAgent(name, { cwd });
-      const definition = resolved.definition;
-      const engine = definition?.engine ?? resolved.adapter.command;
-      const model = definition?.model ? `, model ${definition.model}` : '';
-      return `${name} (${engine}${model})`;
+      if (!resolved.definition) {
+        throw new Error('use um perfil definido em agents/, não o nome de um engine.');
+      }
+      return name;
     } catch (error) {
       throw new Error(`Agente "${name}" não encontrado ou inválido: ${error.message}`);
     }
@@ -78,22 +84,19 @@ export async function chatCommand({ agent, auto = false, cwd = process.cwd(), in
   const hist = [];
   try {
     config = await loadConfig({ cwd });
-    current = agent ?? (auto ? null : config.agents.default);
+    current = agent ?? null;
     if (current) await describe(current);
 
-    say(chalk.bold('Oraculo chat') + ' — comandos: /help, /agent [nome], /sair.');
     if (!pretty) {
+      say(chalk.bold('Oraculo chat') + ' — comandos: /help, /agents, /agent [nome], /permissions, /worktrees, /sair.');
       say(current ? `Agente: ${chalk.cyan(await describe(current))}` : 'Agente: auto (roteado por mensagem).');
     } else {
       top();
       say(frame('ORACULO  ·  interactive chat', (s) => chalk.bold.white(s)));
-      say(frame('/help · /agent [nome] · /sair · Ctrl+C cancela o turno', (s) => chalk.dim(s)));
+      say(frame('/help · /agents · /agent · /permissions · /worktrees · /sair', (s) => chalk.dim(s)));
       bottom();
       if (current) {
-        const resolved = await manager.resolveAgent(current, { cwd });
-        const eng = resolved.definition?.engine ?? resolved.adapter.command;
-        const mod = resolved.definition?.model ? ` · ${resolved.definition.model}` : '';
-        say(`${chalk.blue('◆')} ${chalk.bold(chalk.blue(current))}  ${chalk.dim(eng + mod)}`);
+        say(`${chalk.blue('◆')} ${chalk.bold(chalk.blue(current))}`);
       } else {
         say(`${chalk.blue('◆')} ${chalk.bold(chalk.blue('auto'))}  ${chalk.dim('roteado por mensagem')}`);
       }
@@ -113,10 +116,110 @@ export async function chatCommand({ agent, auto = false, cwd = process.cwd(), in
       if (!text) continue;
       if (['/sair', '/exit', '/quit'].includes(text)) break;
       if (text === '/help' || text === '/ajuda') {
-        say(`${chalk.cyan('/help')} — esta ajuda`);
-        say(`${chalk.cyan('/agent [nome]')} — mostra o agente atual ou troca de agente`);
-        say(`${chalk.cyan('/sair')} — encerra (Ctrl+D também encerra)`);
+        say(chalk.cyan('/help') + ' — esta ajuda');
+        say(chalk.cyan('/agents') + ' — lista os perfis e suas permissões');
+        say(chalk.cyan('/agent [nome]') + ' — mostra o agente atual ou troca de agente');
+        say(chalk.cyan('/permissions [agente] [campo] [valor]') + ' — consulta ou altera permissões');
+        say(chalk.cyan('/worktrees') + ' — lista worktrees');
+        say(chalk.cyan('/worktree create <nome> [branch]') + ' — cria uma worktree');
+        say(chalk.cyan('/worktree remove <nome>') + ' — remove uma worktree limpa');
+        say(chalk.cyan('/sair') + ' — encerra (Ctrl+D também encerra)');
+        say('Campos: worktree, filesystem, git, git-local, git-remote e knowledge.');
+        say('Valores: disabled, read-only, read-write; knowledge aceita project, global ou both.');
         say('Qualquer outra linha é enviada como tarefa ao agente atual.');
+        continue;
+      }
+      if (text === '/agents') {
+        const entries = await listAgents({ cwd });
+        if (!entries.length) say('Nenhum perfil definido em agents/.');
+        for (const entry of entries) {
+          if (entry.error) {
+            say(chalk.red('ERRO') + ' ' + entry.name + ': ' + entry.error);
+            continue;
+          }
+          const permissions = entry.agent.permissions;
+          const worktree = permissions.filesystem === permissions.gitLocal
+            ? (permissions.filesystem ?? 'project-default')
+            : 'mixed';
+          const selected = current === entry.name ? '* ' : '  ';
+          say(selected + chalk.cyan(entry.name) + ' | ' + entry.agent.role +
+            ' | worktree=' + worktree +
+            ' | gitRemote=' + (permissions.gitRemote ?? 'project-default') +
+            ' | knowledge=' + (entry.agent.knowledgeWrite ?? 'disabled'));
+        }
+        continue;
+      }
+      if (text === '/permissions' || text.startsWith('/permissions ')) {
+        const parts = text.slice('/permissions'.length).trim().split(/\s+/).filter(Boolean);
+        let target;
+        let field;
+        let value;
+        if (!parts.length) {
+          target = current;
+        } else if (parts.length === 1) {
+          target = parts[0];
+        } else if (parts.length === 2 && current) {
+          target = current;
+          [field, value] = parts;
+        } else if (parts.length === 3) {
+          [target, field, value] = parts;
+        }
+        if (!target || (field && value === undefined)) {
+          say('Uso: /permissions <agente> [worktree|filesystem|git|git-local|git-remote|knowledge] [valor]');
+          continue;
+        }
+        try {
+          const options = { cwd, print: false };
+          const fields = {
+            worktree: 'worktree',
+            filesystem: 'filesystem',
+            git: 'gitLocal',
+            'git-local': 'gitLocal',
+            'git-remote': 'gitRemote',
+            knowledge: 'knowledgeWrite',
+          };
+          if (field) {
+            const key = fields[field];
+            if (!key) throw new Error('campo inválido.');
+            options[key] = value;
+          }
+          const report = await agentPermissionsCommand(target, options);
+          say(chalk.cyan(report.name) +
+            ' | worktree=' + report.worktree +
+            ' | filesystem=' + report.effectivePermissions.filesystem +
+            ' | gitLocal=' + report.effectivePermissions.gitLocal +
+            ' | gitRemote=' + report.effectivePermissions.gitRemote +
+            ' | knowledge=' + report.knowledgeWrite);
+        } catch (error) {
+          say(chalk.red('Erro: ' + error.message));
+        }
+        continue;
+      }
+      if (text === '/worktrees') {
+        try {
+          const entries = await listWorktrees({ cwd });
+          if (!entries.length) say('Nenhuma worktree encontrada.');
+          for (const entry of entries) say(entry.path + ' | ' + (entry.branch ?? 'detached'));
+        } catch (error) {
+          say(chalk.red('Erro: ' + error.message));
+        }
+        continue;
+      }
+      if (text === '/worktree' || text.startsWith('/worktree ')) {
+        const [action, name, branch, ...extra] = text.slice('/worktree'.length).trim().split(/\s+/).filter(Boolean);
+        if (!action || !name || extra.length || !['create', 'remove'].includes(action) ||
+            (action === 'remove' && branch)) {
+          say('Uso: /worktree create <nome> [branch] | /worktree remove <nome>');
+          continue;
+        }
+        try {
+          const report = action === 'create'
+            ? await createWorktree(name, { cwd, ...(branch ? { branch } : {}) })
+            : await removeWorktree(name, { cwd });
+          say((action === 'create' ? 'Worktree criada: ' : 'Worktree removida: ') + report.path);
+        } catch (error) {
+          say(chalk.red('Erro: ' + error.message));
+        }
         continue;
       }
       if (text === '/agent' || text.startsWith('/agent ')) {
@@ -125,9 +228,16 @@ export async function chatCommand({ agent, auto = false, cwd = process.cwd(), in
           say(current ? `Agente atual: ${chalk.cyan(await describe(current))}` : 'Agente atual: auto.');
           continue;
         }
+        if (name === 'auto') {
+          current = null;
+          auto = true;
+          say(`Agente: ${chalk.cyan('auto')}`);
+          continue;
+        }
         try {
           say(`Agente: ${chalk.cyan(await describe(name))}`);
           current = name;
+          auto = false;
         } catch (error) {
           say(chalk.red(`Erro: ${error.message}`));
         }
@@ -145,7 +255,7 @@ export async function chatCommand({ agent, auto = false, cwd = process.cwd(), in
         if (auto) {
           const report = await routeTask(text, { cwd });
           target = report.selected.agent;
-          const route = `→ ${target} (${report.selected.engine}${report.selected.model ? `, ${report.selected.model}` : ''}): ${report.selected.reasons.join('; ') || 'padrão'}`;
+          const route = `→ ${target}: ${report.selected.reasons.join('; ') || 'padrão'}`;
           if (spinner) spinner.text = route;
           else say(route);
         }
@@ -154,6 +264,8 @@ export async function chatCommand({ agent, auto = false, cwd = process.cwd(), in
           const result = await runAgent({ agent: target, prompt: text, cwd, cancelSignal: running.signal });
           if (spinner) spinner.succeed('Resposta recebida.');
           if (result?.output) answerBlock(result.output);
+          if (result?.knowledge?.written?.length) say(chalk.dim('Knowledge: ' + result.knowledge.written.join(', ')));
+          if (result?.knowledge?.errors?.length) say(chalk.yellow('Aviso de knowledge: ' + result.knowledge.errors.join('; ')));
           hist.push(text);
         } finally {
           running = null;

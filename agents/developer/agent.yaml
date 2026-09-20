@@ -4,6 +4,7 @@ engine: codex
 role: developer
 skills: [nodejs]
 knowledge: []
+knowledgeWrite: both
 permissions:
   filesystem: read-write
   gitLocal: read-write

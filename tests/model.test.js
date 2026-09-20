@@ -45,7 +45,8 @@ test('contexto e roteador carregam o modelo do perfil', async (t) => {
   assert.ok(report.candidates.some((candidate) => candidate.agent === 'dev' && candidate.model === 'muse-spark'));
   const fallback = await routeTask('olá', { cwd });
   assert.equal(fallback.fallback, true);
-  assert.equal(fallback.selected.model, null);
+  assert.equal(fallback.selected.agent, 'dev');
+  assert.equal(fallback.selected.model, 'muse-spark');
 });
 
 test('adapter repassa -m e recusa valor que vira flag', () => {

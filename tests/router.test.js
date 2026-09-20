@@ -26,7 +26,7 @@ test('router usa skills e intenção com motivo verificável', async (t) => {
 });
 test('fallback e profiles inválidos não geram escolha silenciosa incorreta', async (t) => {
   const cwd = await fixture(t);
-  assert.equal((await routeTask('olá', { cwd })).selected.agent, 'opencode');
+  assert.equal((await routeTask('olá', { cwd })).selected.agent, 'backend');
   assert.equal((await routeTask('olá', { cwd })).fallback, true);
   await writeFile(join(cwd, 'agents/security/agent.yaml'), '{');
   const report = await routeTask('LDAP', { cwd });

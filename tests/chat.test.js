@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile, readFile, mkdir, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Readable, Writable } from 'node:stream';
 import { chatCommand } from '../src/commands/chat.js';
@@ -83,14 +83,26 @@ test('chat --auto roteia cada mensagem sem executar escrita', async (t) => {
   const result = await chatCommand({ auto: true, cwd, input, output });
   assert.equal(result.turns, 1);
   assert.match(text(), /→ revisor/);
+  assert.equal(text().includes('codex'), false);
   assert.match(text(), /resposta simulada/);
 });
 
+test('chat sem agente usa roteamento automático e nunca expõe o engine', async (t) => {
+  const cwd = await repository(t);
+  const { input, output, text } = session(['revisar possíveis regressões', '/sair']);
+  const result = await chatCommand({ cwd, input, output });
+  assert.equal(result.turns, 1);
+  assert.match(text(), /Agente: auto/);
+  assert.match(text(), /→ revisor:/);
+  assert.equal(text().includes('codex'), false);
+  assert.equal(text().includes('opencode'), false);
+});
 test('chat rejeita combinação e agente inválidos antes do loop', async (t) => {
   const cwd = await repository(t);
   const { input, output } = session(['/sair']);
   await assert.rejects(chatCommand({ agent: 'revisor', auto: true, cwd, input, output }), /sem agente explícito/);
   await assert.rejects(chatCommand({ agent: 'inexistente', cwd, input, output }), /não encontrado ou inválido/);
+  await assert.rejects(chatCommand({ agent: 'codex', cwd, input, output }), /perfil definido em agents/);
 });
 
 test('CLI expõe o comando chat', async (t) => {
@@ -99,6 +111,23 @@ test('CLI expõe o comando chat', async (t) => {
   assert.match((await run(['chat', '--help'])).stdout, /interativa/);
 });
 
+test('CLI sem subcomando abre o chat diretamente', async (t) => {
+  const cwd = await repository(t);
+  const result = await new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(process.execPath, [cli], { cwd });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.on('error', rejectPromise);
+    child.on('close', (code) => code === 0
+      ? resolvePromise({ stdout, stderr })
+      : rejectPromise(new Error(stderr || 'exit ' + code)));
+    child.stdin.end('/sair\n');
+  });
+  assert.match(result.stdout, /Oraculo chat/);
+  assert.match(result.stdout, /Agente: auto/);
+});
 test('histórico persiste capado em 200 linhas entre sessões', async (t) => {
   const cwd = await repository(t);
   await mkdir(join(cwd, '.oraculo'), { recursive: true });
@@ -157,4 +186,30 @@ test('com TTY o visual usa caixa, prompt ❯ e barra na resposta', async (t) => 
   assert.match(text, /❯/);
   assert.match(text, /│ resposta simulada/);
   assert.equal(text.includes('oraculo/revisor>'), false);
+  assert.equal(text.includes('codex'), false);
+});
+
+
+test('chat administra agents, permissões e worktrees sem enviar tarefas ao engine', async (t) => {
+  const cwd = await repository(t);
+  const { input, output, text } = session([
+    '/agents',
+    '/permissions revisor',
+    '/permissions revisor knowledge both',
+    '/permissions revisor worktree read-only',
+    '/worktree create scratch',
+    '/worktrees',
+    '/worktree remove scratch',
+    '/sair',
+  ]);
+  const result = await chatCommand({ cwd, input, output });
+  assert.equal(result.turns, 0);
+  assert.match(text(), /revisor \| reviewer/);
+  assert.match(text(), /knowledge=both/);
+  assert.match(text(), /worktree=read-only/);
+  assert.match(text(), /Worktree criada: worktrees\/scratch/);
+  assert.match(text(), /Worktree removida: worktrees\/scratch/);
+  assert.equal(text().includes('AGENT_POLICY_UNSUPPORTED'), false);
+  assert.equal(text().includes('codex'), false);
+  assert.equal(text().includes('opencode'), false);
 });

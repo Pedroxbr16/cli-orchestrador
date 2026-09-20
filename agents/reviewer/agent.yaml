@@ -4,6 +4,7 @@ engine: opencode
 role: reviewer
 skills: [code-review]
 knowledge: []
+knowledgeWrite: both
 permissions:
   filesystem: read-only
   gitLocal: read-only

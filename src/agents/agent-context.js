@@ -10,6 +10,7 @@ export function buildAgentContext(agent, task, config) {
     instructions: agent.promptText, task,
     skills: [...agent.skills],
     knowledge: { requested: [...agent.knowledge], loaded: false },
+    knowledgeWrite: agent.knowledgeWrite ?? 'disabled',
     permissions,
     git: structuredClone(config.git),
     runtime: structuredClone(config.runtime),

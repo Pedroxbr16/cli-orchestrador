@@ -4,6 +4,7 @@ engine: opencode
 role: architect
 skills: [architecture]
 knowledge: []
+knowledgeWrite: both
 permissions:
   filesystem: read-only
   gitLocal: read-only

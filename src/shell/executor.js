@@ -13,7 +13,7 @@ export async function executeCommand(argv, { cwd = process.cwd(), dryRun = false
 
 // Doctor intentionally probes installations even when the task policy denies Git.
 export function runDiagnostic(command, args, options = {}) {
-  const version = ['npm', 'git', 'codex', 'opencode'].includes(command) &&
+  const version = ['npm', 'git', 'codex', 'claude', 'opencode'].includes(command) &&
     args.length === 1 && args[0] === '--version';
   const repository = command === 'git' &&
     JSON.stringify(args) === JSON.stringify(['rev-parse', '--is-inside-work-tree']);

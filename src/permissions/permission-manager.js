@@ -10,11 +10,11 @@ export function assertPermissions(config, operation) {
 }
 
 export function assertAgentExecution(engine, { write = false } = {}) {
-  // Fase 10 libera apenas Codex SOMENTE LEITURA, com sandbox read-only,
-  // approval never e verificação pós-execução dentro do adapter. Todo o
-  // resto continua bloqueado: OpenCode sempre, e qualquer engine com escrita.
-  if (engine === 'Codex' && !write) return;
-  const reason = engine === 'Codex'
+  // Codex e Claude Code são liberados somente para leitura. Cada adapter
+  // aplica o modo restrito do CLI e confirma que a worktree permaneceu limpa.
+  const readOnlyEngines = ['Codex', 'Claude Code'];
+  if (readOnlyEngines.includes(engine) && !write) return;
+  const reason = readOnlyEngines.includes(engine)
     ? 'escrita ainda indisponível: use perfil read-only (filesystem e Git local).'
     : 'integração segura ainda indisponível. O ask está bloqueado porque o Oraculo não pode garantir as permissões dentro deste CLI. Use oraculo exec -- git ... para operações controladas.';
   throw policyError(`${engine}: ${reason}`, 'AGENT_POLICY_UNSUPPORTED');

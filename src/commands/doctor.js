@@ -36,7 +36,7 @@ export async function collectDiagnostics({
       add('Agent padrão', 'error', error.message);
     }
     add('Permissões', 'warning',
-      `filesystem=${config.permissions.filesystem}; Git local=${config.permissions.gitLocal}; Git remoto=${config.permissions.gitRemote}. Git Guard ativo em oraculo exec; ask bloqueado até integração segura.`);
+      `filesystem=${config.permissions.filesystem}; Git local=${config.permissions.gitLocal}; Git remoto=${config.permissions.gitRemote}. Git Guard ativo em oraculo exec; Codex e Claude Code liberados somente para perfis read-only.`);
   } catch (error) {
     add('Config', 'error', error.message);
   }
@@ -58,7 +58,7 @@ export async function collectDiagnostics({
     return `falhou (código ${result.exitCode ?? result.code ?? 'desconhecido'})`;
   };
   const available = {};
-  for (const command of ['npm', 'git', 'codex', 'opencode']) {
+  for (const command of ['npm', 'git', 'codex', 'claude', 'opencode']) {
     const result = await probe(command, ['--version']);
     available[command] = result.exitCode === 0 && !result.timedOut;
     const required = ['npm', 'git'].includes(command) ||
@@ -81,7 +81,7 @@ export async function collectDiagnostics({
   } else {
     add('Repository', 'warning', 'não verificado: Git indisponível');
   }
-  add('Execução de agentes', 'warning', 'ask bloqueado: Codex e OpenCode ainda não têm integração com enforcement completo.');
+  add('Execução de agentes', 'ok', 'Codex e Claude Code disponíveis para perfis read-only; OpenCode permanece bloqueado.');
   add('Auth', 'warning',
     'não verificada: --version confirma instalação, não autenticação ou quota. Confira o login no CLI de cada agente.');
   return { checks, success: !checks.some((check) => check.status === 'error') };

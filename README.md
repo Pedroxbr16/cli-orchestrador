@@ -187,26 +187,27 @@ caminho inexistente e segmentos como `__proto__` são recusados. `unset`
 remove a chave (podando objetos esvaziados) e o default volta a valer.
 Exige filesystem em read-write. Para a base inicial, use `oraculo init`.
 
-## Sintaxe de agentes (execução parcial na Fase 10)
+## Sintaxe de agentes
 
 ```bash
 oraculo ask "analise o projeto"
 oraculo ask codex "analise o projeto"
+oraculo ask claude "analise o projeto"
 oraculo ask opencode "analise o projeto"
 ```
 
 Um único argumento seleciona `agents.default`; com dois ou mais, o primeiro
-é o agente explícito. Na Fase 10, apenas perfis **Codex com permissões
-efetivas read-only** (filesystem e Git local) executam de verdade, em sandbox
-somente leitura (seção abaixo). Todo o resto termina em
-`AGENT_POLICY_UNSUPPORTED` antes de iniciar qualquer processo: OpenCode sempre,
-e Codex com escrita (`use perfil read-only`).
+é o agente explícito. Perfis **Codex ou Claude Code com permissões efetivas
+read-only** (filesystem e Git local) executam em modo somente leitura. OpenCode
+e qualquer perfil com escrita terminam em `AGENT_POLICY_UNSUPPORTED` antes de
+iniciar o engine.
 
 ## Agents personalizados (Fase 4)
 
 ```bash
 oraculo agents
 oraculo agent create backend-developer --engine codex --role developer
+oraculo agent create revisor --engine claude --role reviewer --model sonnet
 oraculo agent create arquiteto --engine codex --role architect --model astra
 oraculo agent show backend-developer
 oraculo agent run backend-developer "implemente o endpoint"
@@ -215,7 +216,8 @@ oraculo agent run backend-developer "implemente o endpoint"
 `create` gera `agents/<nome>/agent.yaml` e `prompt.md`, sem sobrescrever
 pastas ou arquivos existentes. O engine padrão para criação é OpenCode.
 `--model` é opcional e define o modelo do engine naquele perfil
-(por exemplo, `astra` no Codex ou `provedor/modelo` no OpenCode); omitido,
+(por exemplo, `astra` no Codex, `sonnet` no Claude Code
+ou `provedor/modelo` no OpenCode); omitido,
 o engine usa o modelo padrão dele. O Oraculo repassa o valor sem validar
 catálogo — modelo desconhecido é erro do engine, não do Oraculo.
 
@@ -230,8 +232,43 @@ oraculo agent update dev --clear-model
 `update` valida tudo pelo mesmo schema da criação (engine inválido, papel
 vazio e modelo vazio são recusados sem gravar), nunca toca no `prompt.md` e
 exige filesystem em read-write. Sem flags, informa que não há o que
-atualizar. Skills, knowledge e permissões do perfil continuam editados
-direto no YAML.
+atualizar. Skills continuam editadas no YAML; permissões e escopo de escrita
+em knowledge também podem ser alterados por comando.
+
+### Permissões por comando
+
+Consulte ou altere as permissões de um perfil sem editar YAML:
+
+```bash
+oraculo agent permissions developer
+oraculo agent permissions developer --worktree read-only
+oraculo agent permissions developer --git-local read-write --git-remote disabled
+oraculo agent permissions developer --knowledge both
+```
+
+`--worktree` é um atalho que aplica o mesmo nível a `filesystem` e
+`gitLocal`. Os níveis são `disabled`, `read-only` e `read-write`.
+`--knowledge` aceita `disabled`, `project`, `global` ou `both`. A permissão
+efetiva continua limitada pela configuração do projeto; um perfil nunca amplia
+o limite definido em `oraculo.config.json`. Tornar Codex ou Claude gravável não
+libera execução com escrita: os adapters seguem bloqueando esse caso até existir
+enforcement seguro.
+
+No chat, os equivalentes são:
+
+```text
+/agents
+/permissions developer
+/permissions developer worktree read-only
+/permissions developer git-remote disabled
+/permissions developer knowledge both
+/worktrees
+/worktree create experimento
+/worktree remove experimento
+```
+
+Esses comandos são tratados pelo REPL e nunca são enviados como prompt ao
+agente. Por isso `/agents` não produz mais `AGENT_POLICY_UNSUPPORTED`.
 Edite os dois arquivos para especializar o perfil. Nomes usam letras
 minúsculas, números e hífens (até 64 caracteres); nomes de engines são reservados.
 
@@ -245,6 +282,7 @@ skills:
   - nodejs
 knowledge:
   - global/coding-standards
+knowledgeWrite: both
 permissions:
   filesystem: read-write
   gitLocal: read-write
@@ -269,8 +307,8 @@ herdam o projeto. Proteções de Git e timeout continuam sendo os do projeto.
 
 Para usar um perfil como padrão, configure `"agents": { "default": "backend-developer" }`.
 `ask "tarefa"`, `ask backend-developer "tarefa"` e `agent run` resolvem
-o mesmo perfil. **A execução segue bloqueada antes de iniciar o engine,
-exceto Codex read-only na Fase 10 (ver seção própria).**
+o mesmo perfil. **A execução só é liberada para perfis Codex ou Claude Code read-only;
+OpenCode e qualquer perfil com escrita continuam bloqueados antes do engine.**
 Criar um perfil não contorna a política estabelecida na Fase 3.
 
 O contexto preparado mantém instruções, tarefa, skills e permissões separadas.
@@ -334,9 +372,9 @@ Fontes inexistentes geram `KNOWLEDGE_NOT_FOUND`; fontes repetidas são deduplica
 oraculo agent context developer "git permissões"
 ```
 
-O comando mostra a prévia em JSON sem executar o engine. Apenas fontes declaradas
-pelo perfil são consideradas; um perfil com `knowledge: []` não recebe documentos.
-Edite o YAML para associar os exemplos desta base ao perfil desejado.
+O comando mostra a prévia em JSON sem executar o engine. Fontes declaradas
+pelo perfil são consideradas normalmente. Documentos aprendidos automaticamente
+pelo próprio perfil também são recuperados, mesmo com `knowledge: []`.
 
 O contexto inclui IDs, linhas e trechos relevantes, separados das instruções e
 marcados como dados de referência. Nenhum conteúdo da base amplia permissões.
@@ -347,9 +385,34 @@ definição; use `agent context` para verificar a recuperação.
 Foram incluídos documentos iniciais em `global/coding-standards.md` e
 `projects/cli-orquestror/architecture.md`. A importação de PDFs, URLs,
 embeddings e bancos vetoriais permanece fora desta fase. `ask` e `agent run`
-para OpenCode e para Codex com escrita continuam bloqueados até a integração
-segura desses fluxos (Codex read-only executa desde a Fase 10).
+para OpenCode e para perfis com escrita continuam bloqueados; Codex e Claude
+Code read-only executam pelos adapters seguros.
 
+### Escrita automática pelos agents
+
+`knowledgeWrite` controla onde o perfil pode registrar aprendizado durável:
+
+```yaml
+knowledgeWrite: both # disabled, project, global ou both
+```
+
+Codex e Claude Code continuam dentro do sandbox read-only. Ao identificar uma
+regra, decisão, solução ou padrão reutilizável, o agente inclui uma proposta
+JSON delimitada na própria resposta. O Oraculo remove esse bloco da resposta,
+valida até quatro registros, verifica o scope autorizado e só então cria
+documentos imutáveis em `knowledge/global/` ou
+`knowledge/projects/<projeto>/`. O turno seguinte do mesmo perfil recupera
+esses documentos automaticamente.
+
+A persistência exige filesystem do projeto em `read-write`, mas não concede
+escrita ao subprocesso do agente. Campos desconhecidos, scope não autorizado,
+conteúdo malformado, controles binários, documentos acima dos limites e
+symlinks são recusados. Segredos óbvios são redigidos, conteúdo idêntico é
+deduplicado e a auditoria registra apenas os IDs gravados, nunca o conteúdo.
+
+Os perfis iniciais usam `knowledgeWrite: both`. Altere pelo CLI com
+`oraculo agent permissions <nome> --knowledge <scope>` ou no chat com
+`/permissions <nome> knowledge <scope>`.
 ## Router (Fase 8)
 
 ```bash
@@ -439,7 +502,7 @@ criar ou remover nada.
 pipeline com um worktree por etapa (`worktrees/<agent>-<índice>`, determinístico
 e sem colisões mesmo quando o mesmo agent aparece em várias etapas), sem criar
 diretórios, branches ou processos. A saída traz `execution:
-blocked-until-secure-engine` para execuções com escrita; Codex somente leitura
+blocked-until-secure-engine` para execuções com escrita; Codex e Claude Code somente leitura
 executa via `ask` desde a Fase 10 (seção abaixo).
 
 Regras e limites: nomes usam letras minúsculas, números e hífens, começando com
@@ -453,7 +516,7 @@ raiz: executado de dentro de uma worktree, é recusado com a mensagem de Git
 externo ainda não suportado. A pasta `worktrees/` está no `.gitignore` para não
 ser commitada por acidente.
 
-## Execução Codex somente leitura (Fase 10)
+## Execução Codex somente leitura
 
 ```bash
 oraculo ask leitor "resuma notas.txt em uma frase"
@@ -461,12 +524,12 @@ oraculo ask --auto "revisar possíveis regressões"
 oraculo agent run leitor "liste os módulos"
 ```
 
-Na Fase 10, `ask`, `ask --auto` e `agent run` executam de verdade quando o
-perfil resolvido usa o engine **codex** com permissões efetivas **read-only**
-(filesystem e Git local). A resposta do motor é impressa em texto. Todo o resto
-continua recusado com `AGENT_POLICY_UNSUPPORTED` antes de qualquer subprocesso:
-OpenCode sempre, Codex com escrita e `pipeline` sem `--dry-run`. `agent show`
-indica `execution: read-only` para perfis executáveis e `blocked` para os demais.
+`ask`, `ask --auto` e `agent run` executam quando o perfil resolvido usa
+**codex** ou **claude** com permissões efetivas **read-only** (filesystem e Git
+local). A resposta do motor é impressa em texto. OpenCode, perfis com escrita e
+`pipeline` sem `--dry-run` continuam recusados com
+`AGENT_POLICY_UNSUPPORTED` antes de iniciar o engine. `agent show` indica
+`execution: read-only` para perfis executáveis e `blocked` para os demais.
 
 Cada execução cria uma worktree efêmera `worktrees/<agent>-ask-<id>` (branch
 nova `wt/<agent>-ask-<id>`) e chama:
@@ -514,6 +577,48 @@ prompt, mas a garantia real é o sandbox + a pós-verificação, nunca o texto.
 Escrita, OpenCode e pipelines com execução seguem para fases futuras, sem
 reativar adapter sem enforcement.
 
+## Adapter Claude Code somente leitura
+
+Use `engine: claude` em um perfil com `filesystem: read-only` e
+`gitLocal: read-only`. O adapter executa o CLI na worktree efêmera com:
+
+```text
+claude --print --output-format text --permission-mode plan --max-turns 8
+  --disallowedTools Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Task,Agent,mcp__*
+  --model <modelo-opcional> -- "<tarefa + instruções + referências>"
+```
+
+O modo `plan` impede modificação de arquivos e execução de comandos. A lista
+de ferramentas negadas bloqueia também web, subagentes e MCP. O Oraculo nunca
+passa `--dangerously-skip-permissions`, `bypassPermissions`,
+`--allowedTools` ou `--add-dir`. Depois do turno, `git status --porcelain --untracked-files=all --ignored=matching`
+precisa confirmar que a worktree continua limpa; qualquer alteração descarta a
+resposta, gera `GIT_POLICY_DENIED` e preserva a worktree para auditoria.
+
+Instale e autentique o CLI conforme a
+[documentação oficial](https://docs.anthropic.com/en/docs/claude-code/getting-started).
+O adapter reutiliza o login ou as variáveis de autenticação já existentes sem
+registrá-las. Timeout, cancelamento, binário ausente, autenticação e quota viram
+os mesmos erros tipados usados pelo adapter Codex. A resposta é limitada a
+32 KiB, e a auditoria nunca grava prompt, resposta ou credenciais.
+
+Exemplo de perfil:
+
+```yaml
+name: revisor
+description: Revisa código sem alterar arquivos
+engine: claude
+model: sonnet
+role: reviewer
+permissions:
+  filesystem: read-only
+  gitLocal: read-only
+  gitRemote: disabled
+```
+
+Os testes usam um executável Claude simulado, sem rede, login ou consumo de
+quota, e verificam sucesso, limpeza, falhas tipadas e detecção de escrita.
+
 ## Modelo por agente e chat interativo (Fase 11)
 
 Cada perfil define **quem executa e com qual modelo**:
@@ -535,29 +640,32 @@ role: developer
 ```
 
 `route` inclui `model` em `selected` e `candidates` (nulo no fallback para
-engine direto); `agent show` exibe o modelo; o Codex recebe `-m <model>` na
-Fase 10 (omitido sem `--model`). Para OpenCode o modelo fica registrado no
-perfil e será consumido pelo adapter dele quando houver integração segura.
+engine direto); `agent show` exibe o modelo; o Codex recebe `-m <model>` e o
+Claude Code recebe `--model <model>` (omitido sem `--model`). Para OpenCode,
+o modelo fica registrado no perfil para uma futura integração segura.
 
 ```bash
+oraculo
 oraculo chat
 oraculo chat arquiteto
-oraculo chat --auto
 ```
 
-`chat` é a interface interativa no estilo dos CLIs dos engines: loop
-pergunta-resposta com prompt `oraculo/<agente> `. Sem agente, usa
-`agents.default`; com `--auto`, cada mensagem é roteada como em `route`
-(mostra `→ agente (engine, model): motivos`). Comandos: `/help`, `/agent
-[nome]` (mostra ou troca), `/sair` (Ctrl+D também encerra); Ctrl+C cancela o
-turno em andamento sem sair. Linha vazia é ignorada; erro de um turno não
-encerra a sessão. Entrada por pipe funciona (processa até EOF): `echo "revise
-X" | oraculo chat revisor`.
+Executar somente `oraculo` abre o chat diretamente. Sem agente explícito, cada
+mensagem é roteada para um perfil definido em `agents/`. A interface mostra
+apenas o nome do perfil (`→ agente: motivos`); engine e modelo permanecem
+detalhes internos. Nomes crus de engine, como `codex`, `claude` e
+`opencode`, não são aceitos por `/agent` nem por `oraculo chat <nome>`.
+
+Comandos: `/help`, `/agents`, `/agent [nome]`, `/agent auto`,
+`/permissions`, `/worktrees`, `/worktree create/remove` e `/sair`
+(Ctrl+D também encerra); Ctrl+C cancela o turno em andamento sem sair. Linha vazia é ignorada; erro de um turno
+não encerra a sessão. Entrada por pipe funciona (processa até EOF):
+`echo "revise X" | oraculo chat revisor`.
 
 O chat usa exatamente o funil do `ask` — mesmas permissões, mesmo bloqueio,
-mesma auditoria — então tudo da Fase 10 vale por turno: só Codex read-only
-executa; OpenCode e escrita recusam com `AGENT_POLICY_UNSUPPORTED`. Sem
-persistência de histórico entre sessões.
+mesma auditoria — então as mesmas regras valem por turno: perfis Codex e Claude
+Code read-only executam; OpenCode e escrita recusam com
+`AGENT_POLICY_UNSUPPORTED`. Sem persistência de histórico entre sessões.
 
 Com TTY, cada turno mostra spinner azul (`ora`) e cores (`chalk`); em pipe a saída
 é texto puro e determinístico. Com terminal, a sessão abre em caixa azul
@@ -566,9 +674,9 @@ estilo OpenCode, prompt `❯` e respostas com barra lateral `│`:
 ```text
 ╭────────────────────────────────────────╮
 │ ORACULO  ·  interactive chat           │
-│ /help · /agent [nome] · /sair · ...    │
+│ /help · /agents · /permissions · ...  │
 ╰────────────────────────────────────────╯
-◆ leitor  codex
+◆ leitor
 leitor ❯ leia f.txt
 ⠋ Consultando leitor…
 ✔ Resposta recebida.
@@ -591,9 +699,10 @@ npm test
 A suíte cobre configuração, doctor, parsing, permissões, proteções de push,
 bloqueio dos adapters, timeout/cancelamento, operações em repositórios
 temporários, roteamento determinístico por intenção/skills, fallback,
-perfis inválidos, ciclo de vida de worktrees, execução Codex somente leitura
-(argv travado, classificação de falhas, violação com preservação e limpeza),
-modelo por agente (`create --model`, `agent update`) e chat interativo (spinner/cores no TTY, histórico capado
+perfis inválidos, ciclo de vida de worktrees, execução Codex e Claude Code
+somente leitura, permissões por comando, escrita/deduplicação de knowledge,
+modelo por agente (`create --model`, `agent update`) e chat interativo
+(spinner/cores no TTY, histórico capado
 em `.oraculo/chat-history`, corrida de pipe corrigida), init idempotente
 e config get/set/unset
 com validação zod e escrita atômica.
