@@ -1,0 +1,11 @@
+name: architect
+description: Planejamento e arquitetura
+engine: opencode
+role: architect
+skills: [architecture]
+knowledge: []
+permissions:
+  filesystem: read-only
+  gitLocal: read-only
+  gitRemote: disabled
+prompt: ./prompt.md

@@ -1,18 +1,21 @@
 {
-  "name": "maestro",
+  "name": "oraculo",
   "version": "0.1.0",
   "description": "CLI para orquestração de agentes de desenvolvimento",
   "type": "module",
   "bin": {
-    "maestro": "./src/cli.js"
+    "oraculo": "./src/cli.js"
   },
   "scripts": {
-    "dev": "node src/cli.js"
+    "dev": "node src/cli.js",
+    "test": "node --test"
   },
   "dependencies": {
     "chalk": "^5.6.2",
     "commander": "^14.0.1",
     "execa": "^9.6.0",
-    "ora": "^9.0.0"
+    "ora": "^9.0.0",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
   }
 }

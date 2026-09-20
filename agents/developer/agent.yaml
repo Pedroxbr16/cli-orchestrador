@@ -1,0 +1,11 @@
+name: developer
+description: Implementação e correção de código
+engine: codex
+role: developer
+skills: [nodejs]
+knowledge: []
+permissions:
+  filesystem: read-write
+  gitLocal: read-write
+  gitRemote: disabled
+prompt: ./prompt.md

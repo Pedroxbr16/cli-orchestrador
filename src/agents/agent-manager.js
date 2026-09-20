@@ -1,3 +1,4 @@
+import { loadAgent } from './agent-loader.js';
 import { CodexAdapter } from './adapters/codex.js';
 import { OpenCodeAdapter } from './adapters/opencode.js';
 
@@ -12,7 +13,7 @@ export class AgentManager {
   getAgent(name) {
     const normalizedName = name.toLowerCase();
 
-    const agent = this.agents[normalizedName];
+    const agent = Object.hasOwn(this.agents, normalizedName) ? this.agents[normalizedName] : undefined;
 
     if (!agent) {
       const availableAgents = Object.keys(this.agents).join(', ');
@@ -23,6 +24,18 @@ export class AgentManager {
     }
 
     return agent;
+  }
+
+  async resolveAgent(name, { cwd = process.cwd() } = {}) {
+    if (Object.hasOwn(this.agents, name.toLowerCase())) {
+      return { adapter: this.getAgent(name) };
+    }
+    try {
+      const definition = await loadAgent(name, { cwd });
+      return { definition, adapter: this.getAgent(definition.engine) };
+    } catch (error) {
+      throw new Error('Agente "' + name + '" não encontrado ou inválido: ' + error.message, { cause: error });
+    }
   }
 
   listAgents() {

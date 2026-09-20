@@ -1,0 +1,13 @@
+{
+  "project": {
+    "name": "cli-orquestror"
+  },
+  "agents": {
+    "default": "opencode"
+  },
+  "permissions": {
+    "filesystem": "read-write",
+    "gitLocal": "read-write",
+    "gitRemote": "disabled"
+  }
+}

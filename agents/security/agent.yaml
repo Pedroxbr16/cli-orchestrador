@@ -1,0 +1,11 @@
+name: security
+description: Análise de segurança
+engine: opencode
+role: security
+skills: [security-review]
+knowledge: []
+permissions:
+  filesystem: read-only
+  gitLocal: read-only
+  gitRemote: disabled
+prompt: ./prompt.md
